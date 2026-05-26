@@ -1,0 +1,383 @@
+// src/screens/AuditFormScreen.tsx
+import React, { useState, useEffect } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, TextInput, StyleSheet, Alert, Image, Dimensions } from 'react-native';
+import { getChecklistByModel } from '../data/ChecklistMaster';
+import * as ImagePicker from 'expo-image-picker';
+import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const LIMITE_FOTOS_POR_PUNTO = 3;
+
+export default function AuditFormScreen({ route, navigation }: any) {
+  const { modelo, serie, eco, horometro, nombreTecnico, sucursal } = route.params; 
+  const { preguntas, maximo } = getChecklistByModel(modelo);
+
+  const [seccionActiva, setSeccionActiva] = useState<string | null>(null);
+  const [respuestas, setRespuestas] = useState<any>({});
+  
+  // --- NUEVOS ESTADOS ---
+  const [comentariosSeccion, setComentariosSeccion] = useState<any>({}); // Comentarios por cada sección
+  const [segundos, setSegundos] = useState(0); // Cronómetro
+  const [cargandoBorrador, setCargandoBorrador] = useState(true);
+
+  // --- 1. CRONÓMETRO ---
+  useEffect(() => {
+    const intervalo = setInterval(() => {
+      setSegundos((s) => s + 1);
+    }, 1000);
+    return () => clearInterval(intervalo);
+  }, []);
+
+  // Formato HH:MM:SS
+  const formatearTiempo = (totalSegundos: number) => {
+    const h = Math.floor(totalSegundos / 3600);
+    const m = Math.floor((totalSegundos % 3600) / 60);
+    const s = totalSegundos % 60;
+    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  };
+
+  // --- 2. CARGAR BORRADOR (INCLUYENDO TIEMPO Y COMENTARIOS) ---
+  useEffect(() => {
+  const cargarBorrador = async () => {
+    try {
+      const borrador = await AsyncStorage.getItem('@borrador_auditoria');
+      if (borrador) {
+        const dataGuardada = JSON.parse(borrador);
+        // Solo cargamos si es del mismo ECO/Serie, para evitar mezclar datos
+        if (dataGuardada.eco === eco) { 
+            setRespuestas(dataGuardada.respuestas || {});
+            setComentariosSeccion(dataGuardada.comentariosSeccion || {});
+            if (dataGuardada.segundos) setSegundos(dataGuardada.segundos);
+        } else {
+            // Si el ECO es diferente, limpiamos porque es una auditoría nueva
+            await AsyncStorage.removeItem('@borrador_auditoria');
+        }
+      }
+    } catch (error) {
+      console.error("Error al cargar borrador", error);
+    } finally {
+      setCargandoBorrador(false);
+    }
+  };
+  cargarBorrador();
+}, [eco]); // IMPORTANTE: agregamos [eco] como dependencia
+
+  // --- GUARDAR BORRADOR AUTOMÁTICO ---
+  useEffect(() => {
+    if (!cargandoBorrador) {
+      const dataParaGuardar = { respuestas, comentariosSeccion, segundos };
+      AsyncStorage.setItem('@borrador_auditoria', JSON.stringify(dataParaGuardar));
+    }
+  }, [respuestas, comentariosSeccion, segundos, cargandoBorrador]);
+
+  const handleRespuesta = (idPregunta: string, status: 'pasa' | 'nopasa') => {
+    setRespuestas({ ...respuestas, [idPregunta]: { ...respuestas[idPregunta], status: status } });
+  };
+
+  const handleDetalleAccion = (idPregunta: string, campo: 'accion' | 'detalle', valor: string) => {
+    setRespuestas({ ...respuestas, [idPregunta]: { ...respuestas[idPregunta], [campo]: valor } });
+  };
+
+  const tomarFotoEvidencia = async (idPregunta: string) => {
+    const fotosActuales = respuestas[idPregunta]?.fotos || [];
+    if (fotosActuales.length >= LIMITE_FOTOS_POR_PUNTO) {
+      Alert.alert('Límite alcanzado', `Máximo de ${LIMITE_FOTOS_POR_PUNTO} fotos por punto.`);
+      return;
+    }
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') return Alert.alert('Permiso denegado', 'Necesitamos acceso a la cámara.');
+
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: false, quality: 0.4, base64: true,
+    });
+
+    if (!result.canceled && result.assets[0].base64) {
+      setRespuestas({
+        ...respuestas,
+        [idPregunta]: { ...respuestas[idPregunta], fotos: [...fotosActuales, result.assets[0].base64] }
+      });
+    }
+  };
+
+  const eliminarFoto = (idPregunta: string, index: number) => {
+    const nuevasFotos = (respuestas[idPregunta]?.fotos || []).filter((_: any, i: number) => i !== index);
+    setRespuestas({ ...respuestas, [idPregunta]: { ...respuestas[idPregunta], fotos: nuevasFotos } });
+  };
+
+  const getEstadoPadre = (item: any) => {
+    if (!item.subItems || item.subItems.length === 0) return null;
+    let totalHijos = item.subItems.length;
+    let pasados = 0, fallados = 0;
+    item.subItems.forEach((sub: any) => {
+      const stat = respuestas[sub.id]?.status;
+      if (stat === 'pasa') pasados++;
+      if (stat === 'nopasa') fallados++;
+    });
+    if (fallados > 0) return 'nopasa';
+    if (pasados === totalHijos) return 'pasa';
+    return 'pendiente';
+  };
+
+  const calcularProgresoSeccion = (seccion: any) => {
+    let totalPreguntas = seccion.items.length;
+    let respondidas = 0;
+
+    seccion.items.forEach((item: any) => {
+      if (respuestas[item.id] && respuestas[item.id].status) {
+        respondidas++;
+      }
+    });
+
+    const completo = totalPreguntas > 0 && respondidas === totalPreguntas;
+    return { respondidas, totalPreguntas, completo };
+  };
+
+  const renderItem = (item: any, isSubItem = false) => {
+    const res = respuestas[item.id] || {};
+    const isPadre = item.subItems && item.subItems.length > 0;
+    let isPasa = false, isNoPasa = false;
+
+    if (isPadre) {
+      const estadoCalculado = getEstadoPadre(item);
+      isPasa = estadoCalculado === 'pasa';
+      isNoPasa = estadoCalculado === 'nopasa';
+    } else {
+      isPasa = res.status === 'pasa';
+      isNoPasa = res.status === 'nopasa';
+    }
+
+    const fotos = res.fotos || [];
+
+    return (
+      <View key={item.id} style={[styles.itemCard, isSubItem ? styles.subItemCard : null]}>
+        <View style={styles.itemHeader}>
+          <Text style={styles.itemText}>{item.id} - {item.text} <Text style={styles.itemValue}>({item.value} pts)</Text></Text>
+        </View>
+
+        {isPadre ? (
+          <View style={styles.badgePadreContainer}>
+            {isPasa && <Text style={styles.badgePadreVerde}>✔️ Sección Aprobada</Text>}
+            {isNoPasa && <Text style={styles.badgePadreRojo}>❌ Falló en tabla extra</Text>}
+            {!isPasa && !isNoPasa && <Text style={styles.badgePadreGris}>Contesta la tabla de abajo...</Text>}
+          </View>
+        ) : (
+          <View style={styles.botonesContainer}>
+            <TouchableOpacity style={[styles.btnOpcion, isPasa && styles.btnPasaActivo]} onPress={() => handleRespuesta(item.id, 'pasa')}>
+              <Text style={[styles.btnTexto, isPasa && styles.btnTextoActivo]}>✔️ Pasa</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.btnOpcion, isNoPasa && styles.btnNoPasaActivo]} onPress={() => handleRespuesta(item.id, 'nopasa')}>
+              <Text style={[styles.btnTexto, isNoPasa && styles.btnTextoActivo]}>❌ No Pasa</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {isNoPasa && !isPadre && (
+          <View style={styles.cajaJustificacion}>
+            <Text style={styles.labelAccion}>¿Qué acción requiere?</Text>
+            <View style={styles.accionesContainer}>
+              {/* MODIFICACIÓN: Se eliminó "Reparación", solo quedan Cambio y Ajuste */}
+              {['Cambio/Diagnostico', 'Ajuste/lubricacion'].map((accion) => (
+                <TouchableOpacity key={accion} style={[styles.btnAccionMini, res.accion === accion && styles.btnAccionMiniActivo]} onPress={() => handleDetalleAccion(item.id, 'accion', accion)}>
+                  <Text style={[styles.btnAccionTexto, res.accion === accion && styles.btnTextoActivo]}>{accion}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <TextInput style={styles.inputDetalle} placeholder="Describe el problema detectado..." value={res.detalle || ''} onChangeText={(texto) => handleDetalleAccion(item.id, 'detalle', texto)} />
+            
+            <View style={styles.zonaFoto}>
+              <View style={styles.labelFotosRow}>
+                <Text style={styles.labelAccion}>Evidencia Fotográfica ({fotos.length}/{LIMITE_FOTOS_POR_PUNTO})</Text>
+                {fotos.length < LIMITE_FOTOS_POR_PUNTO && (
+                    <TouchableOpacity style={styles.btnAñadirFotoChico} onPress={() => tomarFotoEvidencia(item.id)}>
+                        <Ionicons name="camera" size={18} color="#D12424" />
+                        <Text style={styles.textoAñadirChico}>+ Añadir</Text>
+                    </TouchableOpacity>
+                )}
+              </View>
+              {fotos.length > 0 ? (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.carruselFotos}>
+                  {fotos.map((fotoBase64: string, index: number) => (
+                    <View key={index} style={styles.contenedorFotoMiniatura}>
+                      <Image source={{ uri: `data:image/jpeg;base64,${fotoBase64}` }} style={styles.fotoMiniaturaMulti} />
+                      <TouchableOpacity style={styles.btnEliminarFoto} onPress={() => eliminarFoto(item.id, index)}>
+                        <Ionicons name="close-circle" size={24} color="#dc2626" />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </ScrollView>
+              ) : (
+                <TouchableOpacity style={styles.btnTomarFotoLargo} onPress={() => tomarFotoEvidencia(item.id)}>
+                  <Ionicons name="camera" size={24} color="#D12424" />
+                  <Text style={styles.btnTomarFotoTextoLargo}>Tomar Foto de Evidencia</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        )}
+
+        {item.subItems && item.subItems.length > 0 && (
+          <View style={styles.subItemsContainer}>
+            <Text style={styles.subItemsTitle}>👇 Tabla Extra de Inspección</Text>
+            {item.subItems.map((sub: any) => renderItem(sub, true))}
+          </View>
+        )}
+      </View>
+    );
+  };
+
+  const finalizarAuditoria = async () => {
+    let respuestasParaEnviar = { ...respuestas };
+    preguntas.forEach((seccion: any) => {
+      seccion.items.forEach((item: any) => {
+        if (item.subItems && item.subItems.length > 0) {
+          const estadoCalculado = getEstadoPadre(item);
+          if (estadoCalculado === 'pasa' || estadoCalculado === 'nopasa') {
+            respuestasParaEnviar[item.id] = { ...respuestasParaEnviar[item.id], status: estadoCalculado };
+          }
+        }
+      });
+    });
+
+    await AsyncStorage.removeItem('@borrador_auditoria');
+
+    // Mandamos todo a la pantalla final, incluyendo el tiempo y comentarios
+    navigation.navigate('AuditResultsScreen', {
+      respuestas: respuestasParaEnviar,
+      preguntas, 
+      maximo, 
+      modelo, 
+      eco, 
+      serie, 
+      nombreTecnico, 
+      sucursal,
+      tiempoEvaluacion: formatearTiempo(segundos), // <--- Pasamos el tiempo
+      comentariosSeccion: comentariosSeccion       // <--- Pasamos los comentarios
+    });
+  };
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.headerInfo}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.headerTitle}>Auditoría: {modelo}</Text>
+          <Text style={styles.headerSubtitle}>ECO: {eco} | Serie: {serie}</Text>
+        </View>
+        {/* CRONÓMETRO VISUAL */}
+        <View style={styles.cronometroContainer}>
+          <Ionicons name="time-outline" size={20} color="#fff" />
+          <Text style={styles.cronometroTexto}>{formatearTiempo(segundos)}</Text>
+        </View>
+      </View>
+
+      <ScrollView style={styles.scroll}>
+        {preguntas.map((seccion: any) => {
+          const isOpen = seccionActiva === seccion.id;
+          const progreso = calcularProgresoSeccion(seccion);
+
+          return (
+            <View key={seccion.id} style={styles.seccionContainer}>
+              <TouchableOpacity style={styles.acordeonHeader} onPress={() => setSeccionActiva(isOpen ? null : seccion.id)}>
+                <Text style={styles.acordeonTitle}>{seccion.title}</Text>
+                
+                <View style={[styles.progresoBadge, { backgroundColor: progreso.completo ? '#22c55e' : '#f59e0b' }]}>
+                  <Text style={styles.progresoTexto}>{progreso.respondidas}/{progreso.totalPreguntas}</Text>
+                </View>
+                
+                <Text style={styles.acordeonIcon}>{isOpen ? '🔼' : '🔽'}</Text>
+              </TouchableOpacity>
+              
+              {isOpen && (
+                <View style={styles.acordeonBody}>
+                  {/* PREGUNTAS */}
+                  {seccion.items.map((item: any) => renderItem(item))}
+
+                  {/* MODIFICACIÓN: CAJA DE COMENTARIO GENERAL POR SECCIÓN */}
+                  <View style={styles.cajaComentarioSeccion}>
+                    <Text style={styles.labelComentarioSeccion}>Observaciones de {seccion.title} (Opcional):</Text>
+                    <TextInput 
+                      style={styles.inputComentarioSeccion}
+                      placeholder="Agrega un comentario general sobre esta sección..."
+                      multiline
+                      value={comentariosSeccion[seccion.id] || ''}
+                      onChangeText={(txt) => setComentariosSeccion({...comentariosSeccion, [seccion.id]: txt})}
+                    />
+                  </View>
+                </View>
+              )}
+            </View>
+          );
+        })}
+
+        <TouchableOpacity style={styles.btnFinalizar} onPress={finalizarAuditoria}>
+          <Text style={styles.btnFinalizarTexto}>FINALIZAR Y EVALUAR</Text>
+        </TouchableOpacity>
+        <View style={{height: 50}} />
+      </ScrollView>
+    </View>
+  );
+}
+
+const { width: widthScreen } = Dimensions.get('window');
+const tamañoThumbnail = (widthScreen - 80) / 3;
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#f1f5f9' },
+  headerInfo: { backgroundColor: '#1e293b', padding: 20, paddingTop: 40, flexDirection: 'row', alignItems: 'center' },
+  headerTitle: { color: '#fff', fontSize: 22, fontWeight: 'bold' },
+  headerSubtitle: { color: '#94a3b8', fontSize: 16 },
+  
+  cronometroContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#334155', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, borderWidth: 1, borderColor: '#475569' },
+  cronometroTexto: { color: '#fff', fontWeight: 'bold', fontSize: 16, marginLeft: 6, fontVariant: ['tabular-nums'] },
+
+  scroll: { padding: 15 },
+  seccionContainer: { marginBottom: 10, borderRadius: 10, backgroundColor: '#fff', overflow: 'hidden', elevation: 2 },
+  acordeonHeader: { backgroundColor: '#e2e8f0', padding: 18, flexDirection: 'row', alignItems: 'center' },
+  acordeonTitle: { fontSize: 15, fontWeight: 'bold', color: '#334155', flex: 1 },
+  acordeonIcon: { fontSize: 18, marginLeft: 10 },
+  progresoBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+  progresoTexto: { color: '#fff', fontWeight: 'bold', fontSize: 12 },
+  acordeonBody: { padding: 10, backgroundColor: '#f8fafc' },
+  itemCard: { backgroundColor: '#fff', padding: 15, borderRadius: 8, marginBottom: 12, borderWidth: 1, borderColor: '#e2e8f0' },
+  subItemCard: { marginLeft: 15, borderLeftWidth: 4, borderLeftColor: '#D12424', marginTop: 8 },
+  itemHeader: { marginBottom: 10 },
+  itemText: { fontSize: 15, color: '#1e293b', fontWeight: '500' },
+  itemValue: { color: '#64748b', fontWeight: 'normal' },
+  botonesContainer: { flexDirection: 'row', gap: 10 },
+  btnOpcion: { flex: 1, padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#cbd5e1', alignItems: 'center' },
+  btnPasaActivo: { backgroundColor: '#22c55e', borderColor: '#16a34a' },
+  btnNoPasaActivo: { backgroundColor: '#ef4444', borderColor: '#dc2626' },
+  btnTexto: { fontWeight: 'bold', color: '#64748b' },
+  btnTextoActivo: { color: '#fff' },
+  badgePadreContainer: { padding: 10, borderRadius: 8, backgroundColor: '#f8fafc', alignItems: 'center', borderWidth: 1, borderColor: '#e2e8f0' },
+  badgePadreGris: { color: '#64748b', fontWeight: 'bold', fontStyle: 'italic' },
+  badgePadreVerde: { color: '#16a34a', fontWeight: 'bold' },
+  badgePadreRojo: { color: '#dc2626', fontWeight: 'bold' },
+  cajaJustificacion: { marginTop: 15, backgroundColor: '#fee2e2', padding: 15, borderRadius: 8, borderWidth: 1, borderColor: '#fca5a5' },
+  labelAccion: { fontSize: 14, fontWeight: 'bold', color: '#991b1b', marginBottom: 10 },
+  accionesContainer: { flexDirection: 'row', gap: 5, marginBottom: 10 },
+  btnAccionMini: { flex: 1, padding: 8, backgroundColor: '#fff', borderRadius: 6, alignItems: 'center', borderWidth: 1, borderColor: '#fca5a5' },
+  btnAccionMiniActivo: { backgroundColor: '#ef4444', borderColor: '#ef4444' },
+  btnAccionTexto: { fontSize: 12, fontWeight: 'bold', color: '#991b1b' },
+  inputDetalle: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#fca5a5', borderRadius: 6, padding: 10, fontSize: 14 },
+  
+  /* ESTILOS NUEVOS PARA COMENTARIOS DE SECCIÓN */
+  cajaComentarioSeccion: { marginTop: 15, padding: 15, backgroundColor: '#fff', borderRadius: 8, borderWidth: 1, borderColor: '#cbd5e1', borderStyle: 'dashed' },
+  labelComentarioSeccion: { fontSize: 14, fontWeight: 'bold', color: '#334155', marginBottom: 8 },
+  inputComentarioSeccion: { backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 6, padding: 10, fontSize: 14, minHeight: 80, textAlignVertical: 'top' },
+
+  zonaFoto: { marginTop: 15 },
+  labelFotosRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  btnAñadirFotoChico: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, borderWidth: 1, borderColor: '#D12424' },
+  textoAñadirChico: { color: '#D12424', fontSize: 12, fontWeight: 'bold', marginLeft: 3 },
+  carruselFotos: { flexDirection: 'row', marginBottom: 5 },
+  contenedorFotoMiniatura: { marginRight: 10, position: 'relative' },
+  fotoMiniaturaMulti: { width: tamañoThumbnail, height: tamañoThumbnail, borderRadius: 8 },
+  btnEliminarFoto: { position: 'absolute', top: -10, right: -10, backgroundColor: '#fff', borderRadius: 12 },
+  btnTomarFotoLargo: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#D12424', borderStyle: 'dashed', width: '100%', justifyContent: 'center' },
+  btnTomarFotoTextoLargo: { color: '#D12424', fontWeight: 'bold', marginLeft: 8 },
+  subItemsContainer: { marginTop: 15, backgroundColor: '#eff6ff', padding: 10, borderRadius: 8 },
+  subItemsTitle: { fontSize: 13, fontWeight: 'bold', color: '#1d4ed8', marginBottom: 10 },
+  btnFinalizar: { backgroundColor: '#0f172a', padding: 20, borderRadius: 12, alignItems: 'center', marginTop: 20 },
+  btnFinalizarTexto: { color: '#fff', fontSize: 18, fontWeight: 'bold' }
+});
