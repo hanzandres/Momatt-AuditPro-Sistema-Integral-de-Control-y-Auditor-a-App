@@ -9,9 +9,9 @@ export default function AuditResultsScreen({ route, navigation }: any) {
     respuestas, 
     preguntas, 
     maximo, 
-    modelo, eco, serie, nombreTecnico, sucursal, 
+    modelo, eco, modelo_texto, serie, nombreTecnico, nombreEjecutor,sucursal, 
     tiempoEvaluacion, 
-    comentariosSeccion 
+    comentariosSeccion, departamento
   } = route.params;
 
   const [puntosObtenidos, setPuntosObtenidos] = useState(0);
@@ -138,12 +138,16 @@ export default function AuditResultsScreen({ route, navigation }: any) {
     }
 
     navigation.navigate('SendReportScreen', {
-        modelo, eco, serie, nombre_tecnico: nombreTecnico, sucursal, porcentaje_final: porcentaje, 
+        modelo, eco, serie, nombre_tecnico: nombreTecnico,  nombreEjecutor, sucursal, porcentaje_final: porcentaje, 
+        modelo_texto: modelo_texto,
         datos_completos: respuestas,
         tiempo_evaluacion: tiempoEvaluacion,
         comentarios_seccion: comentariosSeccion,
         firma_tecnico: firmaTecnico,
-        firma_lider: firmaLider
+        firma_lider: firmaLider,
+        departamento: departamento,
+        observaciones_estructuradas: JSON.stringify(observacionesEstructuradas)
+        
     });
 };
 
@@ -233,7 +237,7 @@ export default function AuditResultsScreen({ route, navigation }: any) {
         <Text style={styles.sectionTitle}>Firmas de Conformidad</Text>
         
         {/* FIRMA TÉCNICO */}
-        <Text style={styles.firmaLabel}>Firma del Técnico ({nombreTecnico}) *</Text>
+        <Text style={styles.firmaLabel}>Firma Tecnico </Text>
         {firmaTecnico ? (
           <View style={styles.firmaGuardadaContainer}>
             <Image source={{ uri: firmaTecnico }} style={styles.firmaImagen} resizeMode="contain" />
@@ -268,7 +272,7 @@ export default function AuditResultsScreen({ route, navigation }: any) {
         )}
 
         {/* FIRMA LÍDER */}
-        <Text style={[styles.firmaLabel, { marginTop: 30 }]}>Firma Técnico Líder / Supervisor *</Text>
+        <Text style={[styles.firmaLabel, { marginTop: 30 }]}>Firma quien Audito({nombreTecnico})</Text>
         {firmaLider ? (
           <View style={styles.firmaGuardadaContainer}>
             <Image source={{ uri: firmaLider }} style={styles.firmaImagen} resizeMode="contain" />

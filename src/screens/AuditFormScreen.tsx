@@ -1,23 +1,22 @@
 // src/screens/AuditFormScreen.tsx
-import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, TextInput, StyleSheet, Alert, Image, Dimensions } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, TextInput, StyleSheet, Alert, Image, Dimensions, KeyboardAvoidingView, Platform } from 'react-native';
 import { getChecklistByModel } from '../data/ChecklistMaster';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFocusEffect } from '@react-navigation/native';
 
 const LIMITE_FOTOS_POR_PUNTO = 3;
 
 export default function AuditFormScreen({ route, navigation }: any) {
-  const { modelo, serie, eco, horometro, nombreTecnico, sucursal } = route.params; 
+  const { modelo, serie, eco,departamento } = route.params; 
   const { preguntas, maximo } = getChecklistByModel(modelo);
 
   const [seccionActiva, setSeccionActiva] = useState<string | null>(null);
   const [respuestas, setRespuestas] = useState<any>({});
-  
-  // --- NUEVOS ESTADOS ---
-  const [comentariosSeccion, setComentariosSeccion] = useState<any>({}); // Comentarios por cada sección
-  const [segundos, setSegundos] = useState(0); // Cronómetro
+  const [comentariosSeccion, setComentariosSeccion] = useState<any>({}); 
+  const [segundos, setSegundos] = useState(0); 
   const [cargandoBorrador, setCargandoBorrador] = useState(true);
 
   // --- 1. CRONÓMETRO ---
@@ -28,7 +27,6 @@ export default function AuditFormScreen({ route, navigation }: any) {
     return () => clearInterval(intervalo);
   }, []);
 
-  // Formato HH:MM:SS
   const formatearTiempo = (totalSegundos: number) => {
     const h = Math.floor(totalSegundos / 3600);
     const m = Math.floor((totalSegundos % 3600) / 60);
@@ -36,39 +34,59 @@ export default function AuditFormScreen({ route, navigation }: any) {
     return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
-  // --- 2. CARGAR BORRADOR (INCLUYENDO TIEMPO Y COMENTARIOS) ---
-  useEffect(() => {
-  const cargarBorrador = async () => {
-    try {
-      const borrador = await AsyncStorage.getItem('@borrador_auditoria');
-      if (borrador) {
-        const dataGuardada = JSON.parse(borrador);
-        // Solo cargamos si es del mismo ECO/Serie, para evitar mezclar datos
-        if (dataGuardada.eco === eco) { 
-            setRespuestas(dataGuardada.respuestas || {});
-            setComentariosSeccion(dataGuardada.comentariosSeccion || {});
-            if (dataGuardada.segundos) setSegundos(dataGuardada.segundos);
-        } else {
-            // Si el ECO es diferente, limpiamos porque es una auditoría nueva
-            await AsyncStorage.removeItem('@borrador_auditoria');
+  // --- 2. CARGAR BORRADOR ---
+  useFocusEffect(
+    useCallback(() => {
+      let isMounted = true;
+
+      const cargarBorrador = async () => {
+        try {
+          const borrador = await AsyncStorage.getItem('@borrador_auditoria');
+          if (borrador) {
+            const dataGuardada = JSON.parse(borrador);
+            if (dataGuardada.eco === eco) { 
+              if (isMounted) {
+                setRespuestas(dataGuardada.respuestas || {});
+                setComentariosSeccion(dataGuardada.comentariosSeccion || {});
+                if (dataGuardada.segundos) setSegundos(dataGuardada.segundos);
+              }
+            } else {
+              if (isMounted) {
+                setRespuestas({});
+                setComentariosSeccion({});
+                setSegundos(0);
+              }
+              await AsyncStorage.removeItem('@borrador_auditoria');
+            }
+          } else {
+             if (isMounted) {
+               setRespuestas({});
+               setComentariosSeccion({});
+               setSegundos(0);
+             }
+          }
+        } catch (error) {
+          console.error("Error al cargar borrador", error);
+        } finally {
+          if (isMounted) setCargandoBorrador(false);
         }
-      }
-    } catch (error) {
-      console.error("Error al cargar borrador", error);
-    } finally {
-      setCargandoBorrador(false);
-    }
-  };
-  cargarBorrador();
-}, [eco]); // IMPORTANTE: agregamos [eco] como dependencia
+      };
+
+      cargarBorrador();
+
+      return () => {
+        isMounted = false;
+      };
+    }, [eco])
+  );
 
   // --- GUARDAR BORRADOR AUTOMÁTICO ---
   useEffect(() => {
     if (!cargandoBorrador) {
-      const dataParaGuardar = { respuestas, comentariosSeccion, segundos };
+      const dataParaGuardar = { respuestas, comentariosSeccion, segundos, eco };
       AsyncStorage.setItem('@borrador_auditoria', JSON.stringify(dataParaGuardar));
     }
-  }, [respuestas, comentariosSeccion, segundos, cargandoBorrador]);
+  }, [respuestas, comentariosSeccion, segundos, cargandoBorrador, eco]);
 
   const handleRespuesta = (idPregunta: string, status: 'pasa' | 'nopasa') => {
     setRespuestas({ ...respuestas, [idPregunta]: { ...respuestas[idPregunta], status: status } });
@@ -122,13 +140,11 @@ export default function AuditFormScreen({ route, navigation }: any) {
   const calcularProgresoSeccion = (seccion: any) => {
     let totalPreguntas = seccion.items.length;
     let respondidas = 0;
-
     seccion.items.forEach((item: any) => {
       if (respuestas[item.id] && respuestas[item.id].status) {
         respondidas++;
       }
     });
-
     const completo = totalPreguntas > 0 && respondidas === totalPreguntas;
     return { respondidas, totalPreguntas, completo };
   };
@@ -176,7 +192,6 @@ export default function AuditFormScreen({ route, navigation }: any) {
           <View style={styles.cajaJustificacion}>
             <Text style={styles.labelAccion}>¿Qué acción requiere?</Text>
             <View style={styles.accionesContainer}>
-              {/* MODIFICACIÓN: Se eliminó "Reparación", solo quedan Cambio y Ajuste */}
               {['Cambio/Diagnostico', 'Ajuste/lubricacion'].map((accion) => (
                 <TouchableOpacity key={accion} style={[styles.btnAccionMini, res.accion === accion && styles.btnAccionMiniActivo]} onPress={() => handleDetalleAccion(item.id, 'accion', accion)}>
                   <Text style={[styles.btnAccionTexto, res.accion === accion && styles.btnTextoActivo]}>{accion}</Text>
@@ -239,82 +254,88 @@ export default function AuditFormScreen({ route, navigation }: any) {
       });
     });
 
-    await AsyncStorage.removeItem('@borrador_auditoria');
-
-    // Mandamos todo a la pantalla final, incluyendo el tiempo y comentarios
     navigation.navigate('AuditResultsScreen', {
+      ...route.params, 
       respuestas: respuestasParaEnviar,
       preguntas, 
       maximo, 
-      modelo, 
-      eco, 
-      serie, 
-      nombreTecnico, 
-      sucursal,
-      tiempoEvaluacion: formatearTiempo(segundos), // <--- Pasamos el tiempo
-      comentariosSeccion: comentariosSeccion       // <--- Pasamos los comentarios
+      tiempoEvaluacion: formatearTiempo(segundos),
+      comentariosSeccion: comentariosSeccion,
+      modelo_texto: route.params.modelo_texto,
+      departamento: departamento,      
     });
   };
 
   return (
-    <View style={styles.container}>
-      <View style={styles.headerInfo}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.headerTitle}>Auditoría: {modelo}</Text>
-          <Text style={styles.headerSubtitle}>ECO: {eco} | Serie: {serie}</Text>
+    // CORRECCIÓN: Ahora forzamos a Android con 'height' y un Offset
+    <KeyboardAvoidingView 
+      style={{ flex: 1 }} 
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+    >
+      <View style={styles.container}>
+        <View style={styles.headerInfo}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.headerTitle}>Auditoría: {modelo}</Text>
+            <Text style={styles.headerSubtitle}>ECO: {eco} | Serie: {serie}</Text>
+          </View>
+          <View style={styles.cronometroContainer}>
+            <Ionicons name="time-outline" size={20} color="#fff" />
+            <Text style={styles.cronometroTexto}>{formatearTiempo(segundos)}</Text>
+          </View>
         </View>
-        {/* CRONÓMETRO VISUAL */}
-        <View style={styles.cronometroContainer}>
-          <Ionicons name="time-outline" size={20} color="#fff" />
-          <Text style={styles.cronometroTexto}>{formatearTiempo(segundos)}</Text>
-        </View>
-      </View>
 
-      <ScrollView style={styles.scroll}>
-        {preguntas.map((seccion: any) => {
-          const isOpen = seccionActiva === seccion.id;
-          const progreso = calcularProgresoSeccion(seccion);
+        {/* CORRECCIÓN: Agregamos un flexGrow y padding bottom para que haya "piso" */}
+        <ScrollView 
+          style={styles.scroll} 
+          contentContainerStyle={{ flexGrow: 1, paddingBottom: 40 }}
+          keyboardShouldPersistTaps="handled"
+        >
+          {preguntas.map((seccion: any) => {
+            const isOpen = seccionActiva === seccion.id;
+            const progreso = calcularProgresoSeccion(seccion);
 
-          return (
-            <View key={seccion.id} style={styles.seccionContainer}>
-              <TouchableOpacity style={styles.acordeonHeader} onPress={() => setSeccionActiva(isOpen ? null : seccion.id)}>
-                <Text style={styles.acordeonTitle}>{seccion.title}</Text>
-                
-                <View style={[styles.progresoBadge, { backgroundColor: progreso.completo ? '#22c55e' : '#f59e0b' }]}>
-                  <Text style={styles.progresoTexto}>{progreso.respondidas}/{progreso.totalPreguntas}</Text>
-                </View>
-                
-                <Text style={styles.acordeonIcon}>{isOpen ? '🔼' : '🔽'}</Text>
-              </TouchableOpacity>
-              
-              {isOpen && (
-                <View style={styles.acordeonBody}>
-                  {/* PREGUNTAS */}
-                  {seccion.items.map((item: any) => renderItem(item))}
-
-                  {/* MODIFICACIÓN: CAJA DE COMENTARIO GENERAL POR SECCIÓN */}
-                  <View style={styles.cajaComentarioSeccion}>
-                    <Text style={styles.labelComentarioSeccion}>Observaciones de {seccion.title} (Opcional):</Text>
-                    <TextInput 
-                      style={styles.inputComentarioSeccion}
-                      placeholder="Agrega un comentario general sobre esta sección..."
-                      multiline
-                      value={comentariosSeccion[seccion.id] || ''}
-                      onChangeText={(txt) => setComentariosSeccion({...comentariosSeccion, [seccion.id]: txt})}
-                    />
+            return (
+              <View key={seccion.id} style={styles.seccionContainer}>
+                <TouchableOpacity style={styles.acordeonHeader} onPress={() => setSeccionActiva(isOpen ? null : seccion.id)}>
+                  <Text style={styles.acordeonTitle}>{seccion.title}</Text>
+                  
+                  <View style={[styles.progresoBadge, { backgroundColor: progreso.completo ? '#22c55e' : '#f59e0b' }]}>
+                    <Text style={styles.progresoTexto}>{progreso.respondidas}/{progreso.totalPreguntas}</Text>
                   </View>
-                </View>
-              )}
-            </View>
-          );
-        })}
+                  
+                  <Text style={styles.acordeonIcon}>{isOpen ? '🔼' : '🔽'}</Text>
+                </TouchableOpacity>
+                
+                {isOpen && (
+                  <View style={styles.acordeonBody}>
+                    {seccion.items.map((item: any) => renderItem(item))}
 
-        <TouchableOpacity style={styles.btnFinalizar} onPress={finalizarAuditoria}>
-          <Text style={styles.btnFinalizarTexto}>FINALIZAR Y EVALUAR</Text>
-        </TouchableOpacity>
-        <View style={{height: 50}} />
-      </ScrollView>
-    </View>
+                    <View style={styles.cajaComentarioSeccion}>
+                      <Text style={styles.labelComentarioSeccion}>Observaciones de {seccion.title} (Opcional):</Text>
+                      <TextInput 
+                        style={styles.inputComentarioSeccion}
+                        placeholder="Agrega un comentario general sobre esta sección..."
+                        multiline
+                        value={comentariosSeccion[seccion.id] || ''}
+                        onChangeText={(txt) => setComentariosSeccion({...comentariosSeccion, [seccion.id]: txt})}
+                      />
+                    </View>
+                  </View>
+                )}
+              </View>
+            );
+          })}
+
+          <TouchableOpacity style={styles.btnFinalizar} onPress={finalizarAuditoria}>
+            <Text style={styles.btnFinalizarTexto}>FINALIZAR Y EVALUAR</Text>
+          </TouchableOpacity>
+          
+          {/* CORRECCIÓN: Colchón de espacio masivo al final para que puedas deslizar hacia arriba */}
+          <View style={{height: 150}} /> 
+        </ScrollView>
+      </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -361,7 +382,6 @@ const styles = StyleSheet.create({
   btnAccionTexto: { fontSize: 12, fontWeight: 'bold', color: '#991b1b' },
   inputDetalle: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#fca5a5', borderRadius: 6, padding: 10, fontSize: 14 },
   
-  /* ESTILOS NUEVOS PARA COMENTARIOS DE SECCIÓN */
   cajaComentarioSeccion: { marginTop: 15, padding: 15, backgroundColor: '#fff', borderRadius: 8, borderWidth: 1, borderColor: '#cbd5e1', borderStyle: 'dashed' },
   labelComentarioSeccion: { fontSize: 14, fontWeight: 'bold', color: '#334155', marginBottom: 8 },
   inputComentarioSeccion: { backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 6, padding: 10, fontSize: 14, minHeight: 80, textAlignVertical: 'top' },

@@ -14,6 +14,7 @@ import AuditFormScreen from '../screens/AuditFormScreen';
 import SetupAuditScreen from '../screens/SetupAuditScreen';
 import AuditResultsScreen from '../screens/AuditResultsScreen';
 import SendReportScreen from '../screens/SendReportScreen';
+import FollowUpScreen from '../screens/FollowUpScreen';
 
 // 1. Creamos el menú de pestañas
 const Tab = createBottomTabNavigator();
@@ -61,6 +62,7 @@ const AppNavigator = () => {
       <Stack.Screen name="AuditFormScreen" component={AuditFormScreen} options={{title: 'Auditoria en Progreso'}}/>
       <Stack.Screen name="AuditResultsScreen" component={AuditResultsScreen} options={{ title: 'Resultados' }} />
       <Stack.Screen name="SendReportScreen" component={SendReportScreen} options={{ title: 'Envío de Reporte' }} />
+      <Stack.Screen name="FollowUpScreen" component={FollowUpScreen} options={{ title: 'Seguimiento'}} />
     </Stack.Navigator>
   );
 };

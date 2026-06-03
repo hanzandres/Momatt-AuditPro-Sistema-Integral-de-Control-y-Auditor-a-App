@@ -7,11 +7,16 @@ import { Ionicons } from '@expo/vector-icons';
 export default function SendReportScreen({ route, navigation }: any) {
   // Recibimos todo el paquete de datos de la auditoría
   const datosAuditoria = route.params;
+  // BANDERA SECRETA: ¿Es un seguimiento o una auditoría nueva?
+  const isSeguimiento = datosAuditoria?.es_seguimiento === true;
 
   const [institucionales, setInstitucionales] = useState<any[]>([]);
   const [adicionales, setAdicionales] = useState<any[]>([]);
   const [nuevoCorreo, setNuevoCorreo] = useState('');
   const [cargando, setCargando] = useState(false);
+  // CORRECCIÓN: Estado para guardar el correo del técnico que inició sesión
+  const [correoTecnico, setCorreoTecnico] = useState('sistema@momatt.com'); 
+  const [departamentoTecnico, setDepartamentoTecnico] = useState('No especificado');
 
   // 1. Cargar los correos desde la memoria al iniciar la pantalla
   useEffect(() => {
@@ -20,13 +25,38 @@ export default function SendReportScreen({ route, navigation }: any) {
         const c_tl = await AsyncStorage.getItem('tecnico_correo');
         const c_jt = await AsyncStorage.getItem('correo_jt');
         const c_ger = await AsyncStorage.getItem('correo_gerente');
+        const c_ger_ex = await AsyncStorage.getItem('correo_gerente_extra');
+
+        // Guardamos el correo del técnico en el estado para usarlo en el envío final
+        if (c_tl && c_tl !== 'null') setCorreoTecnico(c_tl);
 
         let listaAutomatica = [];
-        if (c_tl) listaAutomatica.push({ id: 'tl', label: 'Técnico Líder (Tú)', email: c_tl, selected: true });
-        if (c_jt) listaAutomatica.push({ id: 'jt', label: 'Jefe Técnico', email: c_jt, selected: true });
-        if (c_ger) listaAutomatica.push({ id: 'ger', label: 'Gerente', email: c_ger, selected: true });
 
+        if (c_tl && c_tl !== 'null' && c_tl.trim() !== '') {
+          listaAutomatica.push({ id: 'tl', label: 'Técnico Líder (Tú)', email: c_tl, selected: true });
+        }
+
+        if (c_jt && c_jt !== 'null' && c_jt.trim() !== '') {
+          listaAutomatica.push({ id: 'jt', label: 'Jefe Técnico', email: c_jt, selected: true });
+        }
+
+        if (c_ger && c_ger !== 'null' && c_ger.trim() !== '') {
+          listaAutomatica.push({ id: 'ger', label: 'Gerente', email: c_ger, selected: true });
+        }
+
+        if (c_ger_ex && c_ger_ex !== 'null' && c_ger_ex.trim() !== '') {
+          listaAutomatica.push({ id: 'ger_ex', label: 'Gerente extra', email: c_ger_ex, selected: true });
+        }
+        //if (c_tl) listaAutomatica.push({ id: 'tl', label: 'Técnico Líder (Tú)', email: c_tl, selected: true });
+        //if (c_jt) listaAutomatica.push({ id: 'jt', label: 'Jefe Técnico', email: c_jt, selected: true });
+        //if (c_ger) listaAutomatica.push({ id: 'ger', label: 'Gerente', email: c_ger, selected: true });
+        //if (c_ger_ex) listaAutomatica.push({ id: 'ger_ex', label: 'Gerente extra', email: c_ger_ex, selected: true });
         setInstitucionales(listaAutomatica);
+
+        const depto = await AsyncStorage.getItem('tecnico_departamento');
+        if (depto) setDepartamentoTecnico(depto);
+
+
       } catch (error) {
         console.error("Error al cargar correos", error);
       }
@@ -75,6 +105,7 @@ export default function SendReportScreen({ route, navigation }: any) {
   };
 
   // 4. ENVÍO FINAL AL SERVIDOR LARAVEL
+  // 4. ENVÍO FINAL AL SERVIDOR LARAVEL
   const handleEnviar = async () => {
     // Juntar todos los correos que tienen "selected: true"
     const correosActivos = [
@@ -90,19 +121,54 @@ export default function SendReportScreen({ route, navigation }: any) {
     setCargando(true);
 
     try {
-      // Preparamos el paquete de datos para Laravel agregando el arreglo de correos
-      const payload = {
-        ...datosAuditoria,
-        modelo_equipo: datosAuditoria.modelo,
-        correos: correosActivos
-      };
+      const userToken = await AsyncStorage.getItem('user_token');
+      // Preparamos el paquete de datos para Laravel
+      const payload = isSeguimiento
+        ? {
+          //datos basico del equipo
+            serie: datosAuditoria.serie,
+            modelo: datosAuditoria.modelo,
+            eco: datosAuditoria.eco,
 
-      // Sustituye por la ruta correcta de tu API en Laravel donde guardas la auditoría
-      const response = await fetch('http://192.168.4.124:8000/api/guardar-auditoria', {
+            //datos extras 
+            modelo_texto: route.params?.modelo_texto,
+            sucursal: datosAuditoria.sucursal,
+            nombre_tecnico: route.params?.nombre_tecnico || datosAuditoria.nombre_tecnico,
+            nombre_ejecutor: route.params?.nombre_ejecutor || datosAuditoria.nombre_ejecutor,
+
+            fecha_finalizacion: route.params?.fecha_finalizacion,
+            reparaciones: route.params?.reparaciones || datosAuditoria.reparaciones_hechas,
+            //reparaciones: datosAuditoria.reparaciones_hechas,
+            
+            correo_tecnico: correoTecnico,
+            correos: correosActivos,
+            
+            //nombre_tecnico: datosAuditoria.nombre_tecnico || datosAuditoria.nombreTecnico,
+            //nombre_ejecutor: datosAuditoria.nombre_ejecutor || datosAuditoria.nombreEjecutor,
+            //departamento: route.params?.departamento,
+            departamento: departamentoTecnico
+            
+          }
+        : {
+            ...datosAuditoria,
+            modelo_equipo: datosAuditoria.modelo,
+            modelo_texto: datosAuditoria.modelo_texto,
+            nombre_ejecutor: datosAuditoria.nombreEjecutor,
+            correo_tecnico: correoTecnico,
+            correos: correosActivos
+          };
+
+          //semaforo ruta 
+          const urlDestino = isSeguimiento 
+        ? 'http://10.194.134.1:8000/api/enviar-pdf-seguimiento' // Ruta nueva para el PDF de seguimiento
+        : 'http://10.194.134.1:8000/api/guardar-auditoria';
+
+      const response = await fetch(urlDestino, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'Authorization': userToken ? `Bearer ${userToken}` : ''
         },
         body: JSON.stringify(payload)
       });
@@ -110,14 +176,23 @@ export default function SendReportScreen({ route, navigation }: any) {
       const result = await response.json();
 
       if (response.ok) {
-        Alert.alert('¡Éxito! 🚀', `Auditoría guardada.\nCorreos enviados a ${correosActivos.length} destinatarios.`);
-        // Borramos el borrador por seguridad (aunque ya lo hicimos antes, es buena práctica)
+        Alert.alert(
+          '¡Éxito!', 
+          isSeguimiento 
+            ? `Seguimiento guardado.\nPDF de reparaciones enviado a ${correosActivos.length} destinatarios.`
+            : `Auditoría guardada.\nCorreos enviados a ${correosActivos.length} destinatarios.`
+        );
+        
+        // Borramos el borrador por seguridad
         await AsyncStorage.removeItem('@borrador_auditoria');
         
-        // Te regresamos a la pantalla de inicio o al Home
+        // Te regresamos a la pantalla de inicio
         navigation.reset({ index: 0, routes: [{ name: 'Main' }] }); 
       } else {
-        Alert.alert('Error del Servidor', result.message || 'Ocurrió un error al guardar la auditoría.');
+        Alert.alert(
+          'Error del Servidor', 
+          result.message || (isSeguimiento ? 'Ocurrió un error al enviar el seguimiento.' : 'Ocurrió un error al guardar la auditoría.')
+        );
       }
     } catch (error) {
       console.error(error);
@@ -127,11 +202,12 @@ export default function SendReportScreen({ route, navigation }: any) {
     }
   };
 
+
   return (
     <ScrollView style={styles.container} keyboardShouldPersistTaps="handled">
-      <View style={styles.header}>
-        <Text style={styles.title}>Enviar Reporte</Text>
-        <Text style={styles.subtitle}>Generación de PDF y envío automático</Text>
+     <View style={styles.header}>
+        <Text style={styles.title}>{isSeguimiento ? 'Enviar Seguimiento' : 'Enviar Reporte'}</Text>
+        <Text style={styles.subtitle}>{isSeguimiento ? 'Envío de PDF de reparaciones' : 'Generación de PDF y envío automático'}</Text>
       </View>
 
       {/* RESUMEN DE LA AUDITORÍA */}
@@ -221,7 +297,9 @@ export default function SendReportScreen({ route, navigation }: any) {
         {cargando ? (
           <ActivityIndicator size="small" color="#ffffff" />
         ) : (
-          <Text style={styles.btnFinalizarTexto}>ENVIAR REPORTE PDF 📨</Text>
+          <Text style={styles.btnFinalizarTexto}>
+            {isSeguimiento ? 'ENVIAR PDF DE REPARACIONES 🛠️' : 'ENVIAR REPORTE PDF 📨'}
+          </Text>
         )}
       </TouchableOpacity>
       

@@ -40,7 +40,7 @@ const LoginScreen = ({ navigation }: any) => {
 
     try {
       // 1. LOGIN NORMAL (Verificar contraseña)
-      const response = await fetch('http://192.168.4.124:8000/api/login', {
+      const response = await fetch('http://10.194.134.1:8000/api/login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -61,15 +61,16 @@ const LoginScreen = ({ navigation }: any) => {
         await AsyncStorage.setItem('tecnico_nombre', data.usuario.name);
         await AsyncStorage.setItem('tecnico_correo', email.toLowerCase().trim());
         
-        // ------------------------------------------------------------------
         // 2. NUEVA MAGIA: Jalar los datos del Excel (Sucursal, Jefes, etc)
-        // ------------------------------------------------------------------
+        const userToken = await AsyncStorage.getItem('user_token');
+      
         try {
-          const verifResponse = await fetch('http://192.168.4.124:8000/api/verificar-usuario', {
+          const verifResponse = await fetch('http://10.194.134.1:8000/api/verificar-usuario', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'Accept': 'application/json'
+              'Accept': 'application/json',
+              'Authorization': userToken ? `Bearer ${userToken}` : ''
             },
             body: JSON.stringify({ correo: email.toLowerCase().trim() })
           });
@@ -83,6 +84,7 @@ const LoginScreen = ({ navigation }: any) => {
             await AsyncStorage.setItem('tecnico_departamento', tecnico.departamento || '');
             await AsyncStorage.setItem('correo_jt', tecnico.correo_jt || '');
             await AsyncStorage.setItem('correo_gerente', tecnico.correo_gerente || '');
+            await AsyncStorage.setItem('correo_gerente_extra', tecnico.correo_gerente_extra || '');
             
             console.log("Datos de la sucursal y jefes guardados con éxito.");
           } else {
