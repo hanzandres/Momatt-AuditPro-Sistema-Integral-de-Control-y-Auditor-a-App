@@ -3,22 +3,20 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, ActivityIndicator } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
+// 🚀 NUEVO IMPORT PARA MODO OFFLINE todo bien 
+import NetInfo from '@react-native-community/netinfo';
 
 export default function SendReportScreen({ route, navigation }: any) {
-  // Recibimos todo el paquete de datos de la auditoría
   const datosAuditoria = route.params;
-  // BANDERA SECRETA: ¿Es un seguimiento o una auditoría nueva?
   const isSeguimiento = datosAuditoria?.es_seguimiento === true;
 
   const [institucionales, setInstitucionales] = useState<any[]>([]);
   const [adicionales, setAdicionales] = useState<any[]>([]);
   const [nuevoCorreo, setNuevoCorreo] = useState('');
   const [cargando, setCargando] = useState(false);
-  // CORRECCIÓN: Estado para guardar el correo del técnico que inició sesión
   const [correoTecnico, setCorreoTecnico] = useState('sistema@momatt.com'); 
   const [departamentoTecnico, setDepartamentoTecnico] = useState('No especificado');
 
-  // 1. Cargar los correos desde la memoria al iniciar la pantalla
   useEffect(() => {
     const cargarCorreos = async () => {
       try {
@@ -27,7 +25,6 @@ export default function SendReportScreen({ route, navigation }: any) {
         const c_ger = await AsyncStorage.getItem('correo_gerente');
         const c_ger_ex = await AsyncStorage.getItem('correo_gerente_extra');
 
-        // Guardamos el correo del técnico en el estado para usarlo en el envío final
         if (c_tl && c_tl !== 'null') setCorreoTecnico(c_tl);
 
         let listaAutomatica = [];
@@ -35,27 +32,19 @@ export default function SendReportScreen({ route, navigation }: any) {
         if (c_tl && c_tl !== 'null' && c_tl.trim() !== '') {
           listaAutomatica.push({ id: 'tl', label: 'Técnico Líder (Tú)', email: c_tl, selected: true });
         }
-
         if (c_jt && c_jt !== 'null' && c_jt.trim() !== '') {
           listaAutomatica.push({ id: 'jt', label: 'Jefe Técnico', email: c_jt, selected: true });
         }
-
         if (c_ger && c_ger !== 'null' && c_ger.trim() !== '') {
           listaAutomatica.push({ id: 'ger', label: 'Gerente', email: c_ger, selected: true });
         }
-
         if (c_ger_ex && c_ger_ex !== 'null' && c_ger_ex.trim() !== '') {
           listaAutomatica.push({ id: 'ger_ex', label: 'Gerente extra', email: c_ger_ex, selected: true });
         }
-        //if (c_tl) listaAutomatica.push({ id: 'tl', label: 'Técnico Líder (Tú)', email: c_tl, selected: true });
-        //if (c_jt) listaAutomatica.push({ id: 'jt', label: 'Jefe Técnico', email: c_jt, selected: true });
-        //if (c_ger) listaAutomatica.push({ id: 'ger', label: 'Gerente', email: c_ger, selected: true });
-        //if (c_ger_ex) listaAutomatica.push({ id: 'ger_ex', label: 'Gerente extra', email: c_ger_ex, selected: true });
         setInstitucionales(listaAutomatica);
 
         const depto = await AsyncStorage.getItem('tecnico_departamento');
         if (depto) setDepartamentoTecnico(depto);
-
 
       } catch (error) {
         console.error("Error al cargar correos", error);
@@ -64,7 +53,6 @@ export default function SendReportScreen({ route, navigation }: any) {
     cargarCorreos();
   }, []);
 
-  // 2. Funciones para manejar los checks
   const toggleInstitucional = (index: number) => {
     const nuevaLista = [...institucionales];
     nuevaLista[index].selected = !nuevaLista[index].selected;
@@ -77,7 +65,6 @@ export default function SendReportScreen({ route, navigation }: any) {
     setAdicionales(nuevaLista);
   };
 
-  // 3. Función para agregar un correo extra (El cliente, etc)
   const agregarCorreoExtra = () => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(nuevoCorreo.trim())) {
@@ -85,7 +72,6 @@ export default function SendReportScreen({ route, navigation }: any) {
       return;
     }
     
-    // Evitar duplicados
     const existeEnInst = institucionales.some(c => c.email.toLowerCase() === nuevoCorreo.toLowerCase().trim());
     const existeEnAdic = adicionales.some(c => c.email.toLowerCase() === nuevoCorreo.toLowerCase().trim());
     
@@ -104,10 +90,10 @@ export default function SendReportScreen({ route, navigation }: any) {
     setAdicionales(nuevaLista);
   };
 
-  // 4. ENVÍO FINAL AL SERVIDOR LARAVEL
-  // 4. ENVÍO FINAL AL SERVIDOR LARAVEL
+  // =================================================================
+  // 🚀 ADUANA FINAL (EL CAJÓN DE SALIDA)
+  // =================================================================
   const handleEnviar = async () => {
-    // Juntar todos los correos que tienen "selected: true"
     const correosActivos = [
       ...institucionales.filter(c => c.selected).map(c => c.email),
       ...adicionales.filter(c => c.selected).map(c => c.email)
@@ -122,32 +108,25 @@ export default function SendReportScreen({ route, navigation }: any) {
 
     try {
       const userToken = await AsyncStorage.getItem('user_token');
-      // Preparamos el paquete de datos para Laravel
+      
       const payload = isSeguimiento
         ? {
-          //datos basico del equipo
             serie: datosAuditoria.serie,
             modelo: datosAuditoria.modelo,
             eco: datosAuditoria.eco,
-
-            //datos extras 
             modelo_texto: route.params?.modelo_texto,
             sucursal: datosAuditoria.sucursal,
             nombre_tecnico: route.params?.nombre_tecnico || datosAuditoria.nombre_tecnico,
             nombre_ejecutor: route.params?.nombre_ejecutor || datosAuditoria.nombre_ejecutor,
-
             fecha_finalizacion: route.params?.fecha_finalizacion,
             reparaciones: route.params?.reparaciones || datosAuditoria.reparaciones_hechas,
-            //reparaciones: datosAuditoria.reparaciones_hechas,
-            
             correo_tecnico: correoTecnico,
             correos: correosActivos,
+            departamento: departamentoTecnico,
             
-            //nombre_tecnico: datosAuditoria.nombre_tecnico || datosAuditoria.nombreTecnico,
-            //nombre_ejecutor: datosAuditoria.nombre_ejecutor || datosAuditoria.nombreEjecutor,
-            //departamento: route.params?.departamento,
-            departamento: departamentoTecnico
-            
+            // 🚀 AQUÍ ESTÁ LO QUE AGREGAMOS (Bala de Plata):
+            reparaciones_hechas: route.params?.reparaciones_hechas || datosAuditoria.reparaciones_hechas,
+            nuevo_estado: route.params?.fecha_finalizacion ? 'Terminado' : 'Pendiente de Seguimiento'
           }
         : {
             ...datosAuditoria,
@@ -158,11 +137,40 @@ export default function SendReportScreen({ route, navigation }: any) {
             correos: correosActivos
           };
 
-          //semaforo ruta 
-          const urlDestino = isSeguimiento 
-        ? 'http://10.194.134.1:8000/api/enviar-pdf-seguimiento' // Ruta nueva para el PDF de seguimiento
+      const urlDestino = isSeguimiento 
+        ? 'http://10.194.134.1:8000/api/enviar-pdf-seguimiento' 
         : 'http://10.194.134.1:8000/api/guardar-auditoria';
 
+      // 1. REVISAMOS EL INTERNET ANTES DE ENVIAR
+      const networkState = await NetInfo.fetch();
+
+      if (!networkState.isConnected || networkState.isInternetReachable === false) {
+        // NO HAY INTERNET: Guardamos en el cajón de salida
+        const auditoriaPendiente = {
+          id: Date.now().toString(),
+          url: urlDestino,
+          payload: payload,
+          tipo: isSeguimiento ? 'Seguimiento' : 'Auditoría Nueva',
+          fecha_guardado: new Date().toLocaleString()
+        };
+
+        const pendientesString = await AsyncStorage.getItem('@pendientes_envio');
+        const listaPendientes = pendientesString ? JSON.parse(pendientesString) : [];
+        
+        listaPendientes.push(auditoriaPendiente);
+        await AsyncStorage.setItem('@pendientes_envio', JSON.stringify(listaPendientes));
+        await AsyncStorage.removeItem('@borrador_auditoria');
+        
+        setCargando(false);
+        Alert.alert(
+          'Guardado sin conexión 📶', 
+          'El reporte está seguro en la tablet. Toca el botón naranja de sincronización en el inicio cuando tengas red.'
+        );
+        navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
+        return; 
+      }
+
+      // 2. SÍ HAY INTERNET: Envío directo a Laravel
       const response = await fetch(urlDestino, {
         method: 'POST',
         headers: {
@@ -179,20 +187,13 @@ export default function SendReportScreen({ route, navigation }: any) {
         Alert.alert(
           '¡Éxito!', 
           isSeguimiento 
-            ? `Seguimiento guardado.\nPDF de reparaciones enviado a ${correosActivos.length} destinatarios.`
+            ? `Seguimiento guardado.\nPDF enviado a ${correosActivos.length} destinatarios.`
             : `Auditoría guardada.\nCorreos enviados a ${correosActivos.length} destinatarios.`
         );
-        
-        // Borramos el borrador por seguridad
         await AsyncStorage.removeItem('@borrador_auditoria');
-        
-        // Te regresamos a la pantalla de inicio
         navigation.reset({ index: 0, routes: [{ name: 'Main' }] }); 
       } else {
-        Alert.alert(
-          'Error del Servidor', 
-          result.message || (isSeguimiento ? 'Ocurrió un error al enviar el seguimiento.' : 'Ocurrió un error al guardar la auditoría.')
-        );
+        Alert.alert('Error del Servidor', result.message || 'Ocurrió un error al guardar.');
       }
     } catch (error) {
       console.error(error);
@@ -202,7 +203,6 @@ export default function SendReportScreen({ route, navigation }: any) {
     }
   };
 
-
   return (
     <ScrollView style={styles.container} keyboardShouldPersistTaps="handled">
      <View style={styles.header}>
@@ -210,7 +210,6 @@ export default function SendReportScreen({ route, navigation }: any) {
         <Text style={styles.subtitle}>{isSeguimiento ? 'Envío de PDF de reparaciones' : 'Generación de PDF y envío automático'}</Text>
       </View>
 
-      {/* RESUMEN DE LA AUDITORÍA */}
       <View style={styles.card}>
         <Text style={styles.sectionTitle}>Resumen del Envío</Text>
         <Text style={styles.resumenText}>• Equipo: {datosAuditoria.modelo}</Text>
@@ -218,7 +217,6 @@ export default function SendReportScreen({ route, navigation }: any) {
         <Text style={styles.resumenText}>• Calificación: {datosAuditoria.porcentaje_final}%</Text>
       </View>
 
-      {/* DESTINATARIOS AUTOMÁTICOS (EXCEL) */}
       <View style={styles.card}>
         <Text style={styles.sectionTitle}>1. Destinatarios Institucionales</Text>
         <Text style={styles.helpText}>Estos correos se asignaron automáticamente según tu registro.</Text>
@@ -247,7 +245,6 @@ export default function SendReportScreen({ route, navigation }: any) {
         )}
       </View>
 
-      {/* AGREGAR DESTINATARIOS EXTRA */}
       <View style={styles.card}>
         <Text style={styles.sectionTitle}>2. Agregar correos adicionales</Text>
         <Text style={styles.helpText}>Puedes añadir correos del cliente u otros contactos.</Text>
@@ -288,7 +285,6 @@ export default function SendReportScreen({ route, navigation }: any) {
         ))}
       </View>
 
-      {/* BOTÓN FINAL DE ENVÍO */}
       <TouchableOpacity 
         style={[styles.btnFinalizar, cargando && styles.btnDeshabilitado]} 
         onPress={handleEnviar}
@@ -305,7 +301,7 @@ export default function SendReportScreen({ route, navigation }: any) {
       
       <View style={{ height: 40 }} />
     </ScrollView>
-  );
+  ); 
 }
 
 const styles = StyleSheet.create({
@@ -318,21 +314,15 @@ const styles = StyleSheet.create({
   helpText: { fontSize: 12, color: '#64748b', marginBottom: 15, fontStyle: 'italic' },
   resumenText: { fontSize: 15, color: '#334155', marginBottom: 5, fontWeight: '500' },
   emptyText: { color: '#ef4444', fontStyle: 'italic', fontSize: 14 },
-  
-  // Elementos del Checkbox
   checkItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
   checkAction: { flexDirection: 'row', alignItems: 'center', flex: 1 },
   correoInfo: { marginLeft: 10, flex: 1 },
   correoRole: { fontSize: 12, color: '#D12424', fontWeight: 'bold' },
   correoText: { fontSize: 14, color: '#334155', fontWeight: '500' },
-
-  // Inputs
   inputContainer: { flexDirection: 'row', gap: 10, marginBottom: 15 },
   input: { flex: 1, borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 8, paddingHorizontal: 12, height: 45, backgroundColor: '#f8fafc' },
   btnAdd: { backgroundColor: '#1e293b', justifyContent: 'center', paddingHorizontal: 15, borderRadius: 8 },
   btnAddText: { color: '#fff', fontWeight: 'bold' },
-
-  // Botón Principal
   btnFinalizar: { backgroundColor: '#16a34a', marginHorizontal: 15, padding: 18, borderRadius: 10, alignItems: 'center', marginTop: 25, elevation: 4 },
   btnDeshabilitado: { backgroundColor: '#94a3b8' },
   btnFinalizarTexto: { color: '#ffffff', fontSize: 16, fontWeight: 'bold', letterSpacing: 1 }

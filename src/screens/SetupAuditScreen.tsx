@@ -4,6 +4,8 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert,
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { MODELOS_DISPONIBLES } from '../data/ChecklistMaster';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+// 🚀 NUEVO IMPORT PARA MODO OFFLINE
+import NetInfo from '@react-native-community/netinfo';
 
 export default function SetupAuditScreen({ navigation }: any) {
   const [modeloSeleccionado, setModeloSeleccionado] = useState('');
@@ -31,7 +33,6 @@ export default function SetupAuditScreen({ navigation }: any) {
   const [horasTrabajadas, setHorasTrabajadas] = useState('');
   const [checklistNum, setChecklistNum] = useState('Cargando...');
 
-  //estado para corporativo
   // Nuevo estado para saber si el usuario tiene permiso de editar sucursal
   const [esUsuarioCorporativo, setEsUsuarioCorporativo] = useState(false);
 
@@ -77,31 +78,39 @@ export default function SetupAuditScreen({ navigation }: any) {
         if (sucursalGuardada) setSucursal(sucursalGuardada);
         if (deptoGuardado) setDepartamento(deptoGuardado);
 
-        // 2. Buscamos el siguiente número de checklist
-        let url = 'http://10.194.134.1:8000/api/siguiente-checklist';
-        if (nombreGuardado) url += `?tecnico=${encodeURIComponent(nombreGuardado)}`;
-        
-        // 3. Preparamos la petición con el Token
-        const requestOptions: RequestInit = {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'Authorization': userToken ? `Bearer ${userToken}` : '' // Mostramos el gafete
+        // ==========================================================
+        // 🚀 2. LÓGICA OFFLINE PARA EL NÚMERO DE CHECKLIST
+        // ==========================================================
+        const networkState = await NetInfo.fetch();
+
+        // Si no hay red O el internet no es alcanzable (Evita el error Network request failed)
+        if (!networkState.isConnected || networkState.isInternetReachable === false) {
+          setChecklistNum('Pendiente (Offline)');
+        } else {
+          // SÍ HAY INTERNET: Buscamos el siguiente número de checklist
+          let url = 'http://10.194.134.1:8000/api/siguiente-checklist';
+          if (nombreGuardado) url += `?tecnico=${encodeURIComponent(nombreGuardado)}`;
+          
+          const requestOptions: RequestInit = {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+              'Authorization': userToken ? `Bearer ${userToken}` : '' // Mostramos el gafete
+            }
+          };
+
+          const response = await fetch(url, requestOptions); 
+          
+          if (response.status === 401) {
+              console.log("Token inválido. No se puede obtener el Check List.");
+              setChecklistNum('Sin Acceso');
+              return;
           }
-        };
 
-        const response = await fetch(url, requestOptions); // Mandamos la petición con el token
-        
-        // Si no hay permiso, evitamos que truene
-        if (response.status === 401) {
-            console.log("Token inválido. No se puede obtener el Check List.");
-            setChecklistNum('Sin Acceso');
-            return;
+          const data = await response.json();
+          setChecklistNum(data.siguiente_numero.toString());
         }
-
-        const data = await response.json();
-        setChecklistNum(data.siguiente_numero.toString());
 
       } catch (error) {
         setChecklistNum('N/A');
@@ -147,8 +156,6 @@ export default function SetupAuditScreen({ navigation }: any) {
       horasTrabajadas
     });
   };
-
-  
 
   return (
     <KeyboardAvoidingView 
@@ -214,7 +221,7 @@ export default function SetupAuditScreen({ navigation }: any) {
               <TextInput style={styles.input} placeholder="Ej. Andres" value={instalado} onChangeText={setInstalado} />
             </View>
             <View style={styles.flex1}>
-              <Text style={styles.label}>Check List # (Auto)</Text>
+              <Text style={styles.label}>Conteo de auditorias (Auto)</Text>
               <TextInput style={[styles.input, styles.inputDisabled]} value={checklistNum} editable={false} />
             </View>
           </View>

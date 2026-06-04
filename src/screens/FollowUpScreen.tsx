@@ -2,6 +2,7 @@
 import React, {useState,useEffect} from 'react';
 import {View,Text,StyleSheet,ScrollView,TouchableOpacity,TextInput,Alert,ActivityIndicator,KeyboardAvoidingView,Platform}from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import NetInfo from '@react-native-community/netinfo';
 
 function FollowUpScreen({route,navigation}: any) {
   const { auditoria,departamento } = route.params;
@@ -11,7 +12,6 @@ function FollowUpScreen({route,navigation}: any) {
     useState<any>({});
   const [isSubmitting, setIsSubmitting] =
     useState(false);
-  // SOLO LECTURA
   const soloLectura =
     auditoria.estado === 'Terminado';
   // CARGAR DATOS
@@ -60,7 +60,7 @@ function FollowUpScreen({route,navigation}: any) {
   }, []);
 
   // =========================================
-  // AUTOGUARDADO
+  // AUTOGUARDADO (SILENCIOSO OFFLINE)
   // =========================================
   const autoGuardar = async (
     nuevosDatos: any
@@ -71,7 +71,16 @@ function FollowUpScreen({route,navigation}: any) {
     }
 
     try {
+      // 🚀 1. REVISAMOS SI HAY INTERNET
+      const networkState = await NetInfo.fetch();
 
+      // Si NO hay internet, guardamos localmente y salimos sin mostrar error
+      if (!networkState.isConnected || networkState.isInternetReachable === false) {
+          await AsyncStorage.setItem(`@backup_seguimiento_${auditoria.serie}`, JSON.stringify(nuevosDatos));
+          return;
+      }
+
+      // SÍ hay internet, intentamos mandar a Laravel
       const tecnicoGuardado =
         await AsyncStorage.getItem(
           'tecnico_nombre'
@@ -106,7 +115,7 @@ function FollowUpScreen({route,navigation}: any) {
       });
     } catch (error) {
       console.log(
-        'Error autoguardado',
+        'Error autoguardado (silencioso)',
         error
       );
     }
@@ -176,13 +185,72 @@ function FollowUpScreen({route,navigation}: any) {
   };
 
   // =========================================
-  // GUARDAR MANUAL
+  // GUARDAR MANUAL (MODIFICADO PARA BRINCAR AL SENDREPORTSCREEN SI NO HAY RED)
   // =========================================
   const handleGuardarSeguimiento =
     async () => {
       setIsSubmitting(true);
       try {
+        // Preparamos los datos
+        const arregloReparaciones = Object.entries(reparaciones).map(([textoDeLaFalla, datos] : any)=>{
 
+            let accionFalla = 'Sin acción definida';
+            let detalleFalla = 'Sin detalle extra';
+
+            for (const seccion of secciones) {
+                  const fallaEncontrada = seccion.fallas.find((f: any) => f.pregunta === textoDeLaFalla);
+                  if (fallaEncontrada) {
+                      accionFalla = fallaEncontrada.accion;
+                      detalleFalla = fallaEncontrada.detalle;
+                      break; 
+                  }
+            }
+
+            return {
+              id: textoDeLaFalla,
+              ...datos,
+                  pregunta: textoDeLaFalla,
+                  fecha_reparacion: datos.fecha_reparacion || new Date().toLocaleDateString('es-MX'),
+                  accion_original: accionFalla,
+                  detalle_original: detalleFalla
+            };
+        });
+
+        const faltan = arregloReparaciones.some(rep => rep.status !== 'pasa');
+        const fechaFinal = faltan ? null : new Date().toLocaleDateString('es-MX');
+        const soloReparados = arregloReparaciones.filter(rep => rep.status === 'pasa');
+
+        // 🚀 LÓGICA OFFLINE: Revisamos si hay internet
+        const networkState = await NetInfo.fetch();
+
+        // Si NO hay red
+        if (!networkState.isConnected || networkState.isInternetReachable === false) {
+           // Guardamos un respaldo por seguridad
+           await AsyncStorage.setItem(`@backup_seguimiento_${auditoria.serie}`, JSON.stringify(reparaciones));
+
+           // Y navegamos directo a la aduana sin preguntar al servidor
+           navigation.navigate('SendReportScreen',{
+            modelo: auditoria.modelo_equipo,
+            serie: auditoria.serie,
+            eco: auditoria.eco,
+            porcentaje_final: auditoria.calificacion || 'N/A', 
+            
+            reparaciones: soloReparados, 
+            fecha_finalizacion: fechaFinal,
+            reparaciones_hechas: reparaciones,
+            
+            es_seguimiento: true,
+            isSeguimiento: true,
+            modelo_texto: auditoria.modelo_texto,
+            sucursal: auditoria.sucursal,
+            nombre_tecnico: auditoria.nombre_tecnico,
+            nombre_ejecutor: auditoria.nombre_ejecutor,
+            departamento: auditoria.departamento || 'No especificado'
+          });
+          return; // Salimos de la función aquí
+        }
+
+        // Si SÍ hay red (Comportamiento original)
         const userToken = await AsyncStorage.getItem('user_token');
         const tecnicoGuardado =
           await AsyncStorage.getItem(
@@ -220,51 +288,16 @@ function FollowUpScreen({route,navigation}: any) {
               {
                 text: 'OK',
                 onPress: () => {
-                  
-                  const arregloReparaciones = Object.entries(reparaciones).map(([textoDeLaFalla, datos] : any)=>{
-
-                    let accionFalla = 'Sin acción definida';
-                    let detalleFalla = 'Sin detalle extra';
-
-                    for (const seccion of secciones) {
-                          const fallaEncontrada = seccion.fallas.find((f: any) => f.pregunta === textoDeLaFalla);
-                          if (fallaEncontrada) {
-                              accionFalla = fallaEncontrada.accion;
-                              detalleFalla = fallaEncontrada.detalle;
-                              break; // Ya la encontramos, dejamos de buscar
-                          }
-                      }
-
-                    return {
-                      id: textoDeLaFalla,
-                      ...datos,
-                          pregunta: textoDeLaFalla,
-                          fecha_reparacion: datos.fecha_reparacion || new Date().toLocaleDateString('es-MX'),
-
-                          accion_original: accionFalla,
-                          detalle_original: detalleFalla
-                    };
-                  });
-
-                  const faltan = arregloReparaciones.some(rep => rep.status !== 'pasa');
-                  const fechaFinal = faltan ? null : new Date().toLocaleDateString('es-MX');
-
-                  // 3. Filtrar SÓLO los que ya están reparados
-                  const soloReparados = arregloReparaciones.filter(rep => rep.status === 'pasa');
-
                   navigation.navigate('SendReportScreen',{
                     modelo: auditoria.modelo_equipo,
                     serie: auditoria.serie,
                     eco: auditoria.eco,
-                    porcentaje_final: auditoria.calificacion || 'N/A', // O el campo que uses para calificación
+                    porcentaje_final: auditoria.calificacion || 'N/A', 
                     
-                    // Le pasamos los datos de la reparación
                     reparaciones: soloReparados, 
-                   // Lo mandamos doble por si acaso
                     fecha_finalizacion: fechaFinal,
                     reparaciones_hechas: reparaciones,
                     
-                    // LA BANDERA SECRETA 🚩
                     es_seguimiento: true,
                     isSeguimiento: true,
                     modelo_texto: auditoria.modelo_texto,
@@ -272,8 +305,6 @@ function FollowUpScreen({route,navigation}: any) {
                     nombre_tecnico: auditoria.nombre_tecnico,
                     nombre_ejecutor: auditoria.nombre_ejecutor,
                     departamento: auditoria.departamento || 'No especificado'
-
-                    
                   });
                 }
               }
