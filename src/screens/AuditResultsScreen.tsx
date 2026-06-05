@@ -11,7 +11,9 @@ export default function AuditResultsScreen({ route, navigation }: any) {
     maximo, 
     modelo, eco, modelo_texto, serie, nombreTecnico, nombreEjecutor,sucursal, 
     tiempoEvaluacion, 
-    comentariosSeccion, departamento
+    comentariosSeccion, departamento,
+    // 🚀 RECIBIMOS LAS COORDENADAS AQUÍ
+    latitud, longitud
   } = route.params;
 
   const [puntosObtenidos, setPuntosObtenidos] = useState(0);
@@ -146,8 +148,10 @@ export default function AuditResultsScreen({ route, navigation }: any) {
         firma_tecnico: firmaTecnico,
         firma_lider: firmaLider,
         departamento: departamento,
-        observaciones_estructuradas: JSON.stringify(observacionesEstructuradas)
-        
+        observaciones_estructuradas: JSON.stringify(observacionesEstructuradas),
+        // 🚀 PASAMOS LAS COORDENADAS A LA ÚLTIMA PANTALLA
+        latitud: latitud,
+        longitud: longitud
     });
 };
 

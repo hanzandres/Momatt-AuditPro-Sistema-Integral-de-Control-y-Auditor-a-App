@@ -4,6 +4,8 @@ import { StyleSheet, Text, View, TouchableOpacity, FlatList, StatusBar, Activity
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import NetInfo from '@react-native-community/netinfo';
+// 🚀 NUEVO IMPORT PARA EL RASTREO SILENCIOSO (ANTI-TRAMPAS)
+import * as Location from 'expo-location';
 
 const COLORS = {
   red: '#D12424',
@@ -33,6 +35,37 @@ const HomeScreen = ({ navigation }: any) => {
   // 🚀 NUEVOS ESTADOS PARA MODO OFFLINE
   const [pendientes, setPendientes] = useState<any[]>([]);
   const [sincronizando, setSincronizando] = useState(false);
+
+  // =================================================================
+  // 🚀 LÓGICA ANTI-TRAMPAS: CAPTURA DE GPS EN SEGUNDO PLANO
+  // =================================================================
+  const capturarUbicacionSeguridad = async () => {
+    try {
+      let { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        console.log("Permiso de GPS denegado en Home");
+        return;
+      }
+
+      // Usamos precisión balanceada para no trabar la pantalla de inicio
+      let loc = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced 
+      });
+      
+      const ubicacionSeguridad = {
+        lat: loc.coords.latitude,
+        lng: loc.coords.longitude,
+        timestamp: new Date().toLocaleString() // Guardamos a qué hora lo detectamos
+      };
+
+      // Guardamos la ubicación en la bóveda
+      await AsyncStorage.setItem('@ubicacion_seguridad', JSON.stringify(ubicacionSeguridad));
+      console.log("📍 Ubicación de seguridad guardada silenciosamente:", ubicacionSeguridad);
+      
+    } catch (error) {
+      console.log("Error al obtener GPS de seguridad en Home:", error);
+    }
+  };
 
   // =================================================================
   // FUNCIÓN 1: CARGAR AUDITORÍAS (CON ESCUDO OFFLINE)
@@ -118,9 +151,6 @@ const HomeScreen = ({ navigation }: any) => {
   };
 
   // =================================================================
-  // FUNCIÓN 3: SINCRONIZADOR AL SERVIDOR
-  // =================================================================
- // =================================================================
   // FUNCIÓN 3: SINCRONIZADOR AL SERVIDOR (CON TRAMPA DE ERRORES)
   // =================================================================
   const sincronizarDatos = async () => {
@@ -174,11 +204,13 @@ const HomeScreen = ({ navigation }: any) => {
     
     setSincronizando(false);
   };
+
   // RECARGAR AL VOLVER
   useFocusEffect(
     useCallback(() => {
       cargarAuditorias();
       revisarPendientes(); // 🚀 El radar escanea cada vez que abres esta pantalla
+      capturarUbicacionSeguridad(); // 🚀 Disparamos el rastreo oculto
     }, [])
   );
 

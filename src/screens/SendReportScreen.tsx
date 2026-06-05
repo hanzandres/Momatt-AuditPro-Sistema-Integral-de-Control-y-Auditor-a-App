@@ -3,7 +3,6 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, ActivityIndicator } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
-// 🚀 NUEVO IMPORT PARA MODO OFFLINE todo bien 
 import NetInfo from '@react-native-community/netinfo';
 
 export default function SendReportScreen({ route, navigation }: any) {
@@ -91,7 +90,7 @@ export default function SendReportScreen({ route, navigation }: any) {
   };
 
   // =================================================================
-  // 🚀 ADUANA FINAL (EL CAJÓN DE SALIDA)
+  // 🚀 ADUANA FINAL (EL CAJÓN DE SALIDA CON GPS ANTI-TRAMPAS)
   // =================================================================
   const handleEnviar = async () => {
     const correosActivos = [
@@ -109,6 +108,22 @@ export default function SendReportScreen({ route, navigation }: any) {
     try {
       const userToken = await AsyncStorage.getItem('user_token');
       
+      // 🚀 LÓGICA ANTI-TRAMPAS DE UBICACIÓN
+      let latitudFinal = route.params?.latitud || null;
+      let longitudFinal = route.params?.longitud || null;
+
+      // Si por alguna razón (sin internet/sin permiso en la pantalla setup) no llegaron las coordenadas...
+      if (!latitudFinal || !longitudFinal) {
+          // Buscamos en la bóveda secreta del HomeScreen
+          const ubiSeguridadString = await AsyncStorage.getItem('@ubicacion_seguridad');
+          if (ubiSeguridadString) {
+              const ubiSeguridad = JSON.parse(ubiSeguridadString);
+              latitudFinal = ubiSeguridad.lat.toString();
+              longitudFinal = ubiSeguridad.lng.toString();
+              console.log("Se usó ubicación de seguridad (Anti-trampas):", latitudFinal, longitudFinal);
+          }
+      }
+      
       const payload = isSeguimiento
         ? {
             serie: datosAuditoria.serie,
@@ -123,10 +138,11 @@ export default function SendReportScreen({ route, navigation }: any) {
             correo_tecnico: correoTecnico,
             correos: correosActivos,
             departamento: departamentoTecnico,
-            
-            // 🚀 AQUÍ ESTÁ LO QUE AGREGAMOS (Bala de Plata):
             reparaciones_hechas: route.params?.reparaciones_hechas || datosAuditoria.reparaciones_hechas,
-            nuevo_estado: route.params?.fecha_finalizacion ? 'Terminado' : 'Pendiente de Seguimiento'
+            nuevo_estado: route.params?.fecha_finalizacion ? 'Terminado' : 'Pendiente de Seguimiento',
+            // 📍 ENVIAMOS COORDENADAS (SEGUIMIENTO)
+            latitud: latitudFinal,
+            longitud: longitudFinal
           }
         : {
             ...datosAuditoria,
@@ -134,7 +150,10 @@ export default function SendReportScreen({ route, navigation }: any) {
             modelo_texto: datosAuditoria.modelo_texto,
             nombre_ejecutor: datosAuditoria.nombreEjecutor,
             correo_tecnico: correoTecnico,
-            correos: correosActivos
+            correos: correosActivos,
+            // 📍 ENVIAMOS COORDENADAS (NUEVA AUDITORÍA)
+            latitud: latitudFinal,
+            longitud: longitudFinal
           };
 
       const urlDestino = isSeguimiento 

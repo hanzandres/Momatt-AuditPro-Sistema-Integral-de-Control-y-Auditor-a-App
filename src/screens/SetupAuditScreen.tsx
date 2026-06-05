@@ -1,11 +1,13 @@
 // src/screens/SetupAuditScreen.tsx
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, Platform, KeyboardAvoidingView } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, Platform, KeyboardAvoidingView, ActivityIndicator } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { MODELOS_DISPONIBLES } from '../data/ChecklistMaster';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-// 🚀 NUEVO IMPORT PARA MODO OFFLINE
 import NetInfo from '@react-native-community/netinfo';
+import * as Location from 'expo-location';
+import { Ionicons } from '@expo/vector-icons';
+import MapView, { Marker } from 'react-native-maps';
 
 export default function SetupAuditScreen({ navigation }: any) {
   const [modeloSeleccionado, setModeloSeleccionado] = useState('');
@@ -33,11 +35,40 @@ export default function SetupAuditScreen({ navigation }: any) {
   const [horasTrabajadas, setHorasTrabajadas] = useState('');
   const [checklistNum, setChecklistNum] = useState('Cargando...');
 
-  // Nuevo estado para saber si el usuario tiene permiso de editar sucursal
   const [esUsuarioCorporativo, setEsUsuarioCorporativo] = useState(false);
-
-  // Nuevo campo de texto para el modelo en la sección 2
   const [modeloTexto, setModeloTexto] = useState('');
+
+  // 🚀 ESTADOS PARA GEOLOCALIZACIÓN
+  const [ubicacion, setUbicacion] = useState<{lat: number, lng: number} | null>(null);
+  const [estadoGps, setEstadoGps] = useState<string>('Buscando señal GPS...');
+
+  // --- OBTENER GEOLOCALIZACIÓN AL INICIAR ---
+  useEffect(() => {
+    const obtenerUbicacion = async () => {
+      try {
+        let { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          setEstadoGps('❌ Permiso de ubicación denegado');
+          return;
+        }
+
+        let loc = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Highest 
+        });
+        
+        setUbicacion({
+          lat: loc.coords.latitude, // Ahora lo guardamos como número para el mapa
+          lng: loc.coords.longitude
+        });
+        setEstadoGps(`Ubicación capturada con éxito`);
+      } catch (error) {
+        setEstadoGps('❌ Error al obtener GPS. Activa tu ubicación.');
+        console.error("Error GPS:", error);
+      }
+    };
+
+    obtenerUbicacion();
+  }, []);
 
   // --- CÁLCULO AUTOMÁTICO DE HORAS TRABAJADAS ---
   useEffect(() => {
@@ -56,19 +87,16 @@ export default function SetupAuditScreen({ navigation }: any) {
   useEffect(() => {
     const inicializarDatos = async () => {
       try {
-        // 1. Jalamos todos los datos que guardó el Login
         const nombreGuardado = await AsyncStorage.getItem('tecnico_nombre');
         const sucursalGuardada = await AsyncStorage.getItem('tecnico_sucursal');
         const deptoGuardado = await AsyncStorage.getItem('tecnico_departamento');
-        const userToken = await AsyncStorage.getItem('user_token'); // ¡Sacamos el gafete de la memoria!
+        const userToken = await AsyncStorage.getItem('user_token');
 
         if (sucursalGuardada) {
-            // Si originalmente dice Corporativo o está vacío, le damos permiso de editar
             if (sucursalGuardada === 'Corporativo' || sucursalGuardada.trim() === '') {
                 setEsUsuarioCorporativo(true);
-                setSucursal(''); // Dejamos la caja limpia para que ellos escriban
+                setSucursal(''); 
             } else {
-                // Si es un técnico normal, ponemos su sucursal fija
                 setSucursal(sucursalGuardada);
             }
         }
@@ -78,16 +106,11 @@ export default function SetupAuditScreen({ navigation }: any) {
         if (sucursalGuardada) setSucursal(sucursalGuardada);
         if (deptoGuardado) setDepartamento(deptoGuardado);
 
-        // ==========================================================
-        // 🚀 2. LÓGICA OFFLINE PARA EL NÚMERO DE CHECKLIST
-        // ==========================================================
         const networkState = await NetInfo.fetch();
 
-        // Si no hay red O el internet no es alcanzable (Evita el error Network request failed)
         if (!networkState.isConnected || networkState.isInternetReachable === false) {
           setChecklistNum('Pendiente (Offline)');
         } else {
-          // SÍ HAY INTERNET: Buscamos el siguiente número de checklist
           let url = 'http://10.194.134.1:8000/api/siguiente-checklist';
           if (nombreGuardado) url += `?tecnico=${encodeURIComponent(nombreGuardado)}`;
           
@@ -96,7 +119,7 @@ export default function SetupAuditScreen({ navigation }: any) {
             headers: {
               'Content-Type': 'application/json',
               'Accept': 'application/json',
-              'Authorization': userToken ? `Bearer ${userToken}` : '' // Mostramos el gafete
+              'Authorization': userToken ? `Bearer ${userToken}` : '' 
             }
           };
 
@@ -135,6 +158,11 @@ export default function SetupAuditScreen({ navigation }: any) {
       return;
     }
 
+    if (!ubicacion) {
+        Alert.alert('GPS Pendiente', 'Aún estamos buscando tu ubicación. Por favor, asegúrate de que el GPS de tu tablet esté encendido o espera unos segundos más.', [{ text: 'OK' }]);
+        return;
+    }
+
     navigation.navigate('AuditFormScreen', {
       modelo: modeloSeleccionado,
       serie,
@@ -142,8 +170,8 @@ export default function SetupAuditScreen({ navigation }: any) {
       eco,
       instalado,
       checklistNo: checklistNum,
-      nombreTecnico,     // Se manda el auditor
-      nombreEjecutor,    // Se manda el ejecutor
+      nombreTecnico,    
+      nombreEjecutor,  
       sucursal, 
       departamento,
       horasInspeccion,
@@ -153,7 +181,10 @@ export default function SetupAuditScreen({ navigation }: any) {
       aplicacion,
       fechaAuditoria,
       diagSeguimiento,
-      horasTrabajadas
+      horasTrabajadas,
+      // Pasamos las coordenadas como strings porque es más fácil manipularlas después
+      latitud: ubicacion.lat.toString(), 
+      longitud: ubicacion.lng.toString() 
     });
   };
 
@@ -230,7 +261,6 @@ export default function SetupAuditScreen({ navigation }: any) {
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>3. Datos de la Inspección</Text>
           
-          {/* Técnico que ejecuta el trabajo en campo (Editable) ARRIBA */}
           <Text style={styles.label}>Técnico</Text>
           <TextInput style={styles.input} placeholder="Ej. Nombre del técnico" value={nombreEjecutor} onChangeText={setNombreEjecutor} />
 
@@ -279,10 +309,8 @@ export default function SetupAuditScreen({ navigation }: any) {
             </View>
           </View>
 
-          {/* Técnico que inició sesión (Bloqueado) ABAJO */}
           <Text style={styles.label}>Persona que Audito</Text>
           <TextInput style={[styles.input, styles.inputDisabled]} value={nombreTecnico} editable={false} />
-
         </View>
 
         <View style={styles.card}>
@@ -306,11 +334,50 @@ export default function SetupAuditScreen({ navigation }: any) {
           <TextInput style={styles.input} placeholder="Detalles de seguimiento" value={diagSeguimiento} onChangeText={setDiagSeguimiento} />
         </View>
 
+        {/* 🚀 MAPA DE UBICACIÓN (ESTILO PROFESIONAL) */}
+        <View style={styles.mapCard}>
+            <View style={styles.mapHeader}>
+                <Ionicons name="location-sharp" size={20} color="#D12424" />
+                <Text style={styles.mapTitle}>Tu Ubicación Actual</Text>
+            </View>
+            
+            <View style={styles.mapContainer}>
+                {ubicacion ? (
+                    <MapView 
+                        style={styles.map}
+                        initialRegion={{
+                            latitude: ubicacion.lat,
+                            longitude: ubicacion.lng,
+                            latitudeDelta: 0.005, // Zoom cercano
+                            longitudeDelta: 0.005,
+                        }}
+                        scrollEnabled={false} // Evitamos que el usuario juegue con el mapa para no arruinar el scroll general
+                        zoomEnabled={false}
+                    >
+                        <Marker 
+                            coordinate={{ latitude: ubicacion.lat, longitude: ubicacion.lng }}
+                            title="Técnico Momatt"
+                            description="Ubicación registrada"
+                            pinColor="#D12424"
+                        />
+                    </MapView>
+                ) : (
+                    <View style={styles.mapLoading}>
+                        <ActivityIndicator size="large" color="#D12424" />
+                        <Text style={styles.mapLoadingText}>{estadoGps}</Text>
+                    </View>
+                )}
+            </View>
+            
+            {ubicacion && (
+                <Text style={styles.mapStatus}>✅ {estadoGps}</Text>
+            )}
+        </View>
+
         <TouchableOpacity style={styles.btnComenzar} onPress={handleComenzar}>
           <Text style={styles.btnComenzarText}>INICIAR EVALUACIÓN 🚀</Text>
         </TouchableOpacity>
         
-        {/* Colchón extra de espacio para permitir el scroll cuando el teclado esté arriba */}
         <View style={{ height: 150 }} />
       </ScrollView>
     </KeyboardAvoidingView>
@@ -335,5 +402,15 @@ const styles = StyleSheet.create({
   modelText: { color: '#475569', fontWeight: 'bold', fontSize: 13 },
   modelTextActive: { color: '#ffffff' },
   btnComenzar: { backgroundColor: '#D12424', marginHorizontal: 15, padding: 16, borderRadius: 10, alignItems: 'center', marginTop: 20, elevation: 3 },
-  btnComenzarText: { color: '#ffffff', fontSize: 16, fontWeight: 'bold', letterSpacing: 0.5 }
+  btnComenzarText: { color: '#ffffff', fontSize: 16, fontWeight: 'bold', letterSpacing: 0.5 },
+  
+  // 🚀 ESTILOS PARA EL MAPA
+  mapCard: { backgroundColor: '#ffffff', marginHorizontal: 15, marginTop: 15, borderRadius: 12, elevation: 2, overflow: 'hidden' },
+  mapHeader: { flexDirection: 'row', alignItems: 'center', padding: 15, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
+  mapTitle: { fontSize: 16, fontWeight: 'bold', color: '#1e293b', marginLeft: 8 },
+  mapContainer: { height: 180, width: '100%', backgroundColor: '#f8fafc' },
+  map: { ...StyleSheet.absoluteFillObject },
+  mapLoading: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  mapLoadingText: { color: '#64748b', marginTop: 10, fontSize: 14, fontStyle: 'italic' },
+  mapStatus: { padding: 12, textAlign: 'center', color: '#16a34a', fontWeight: 'bold', fontSize: 13, backgroundColor: '#f0fdf4' }
 });

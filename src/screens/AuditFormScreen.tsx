@@ -10,7 +10,7 @@ import { useFocusEffect } from '@react-navigation/native';
 const LIMITE_FOTOS_POR_PUNTO = 3;
 
 export default function AuditFormScreen({ route, navigation }: any) {
-  const { modelo, serie, eco,departamento } = route.params; 
+  const { modelo, serie, eco, departamento } = route.params; 
   const { preguntas, maximo } = getChecklistByModel(modelo);
 
   const [seccionActiva, setSeccionActiva] = useState<string | null>(null);
@@ -18,6 +18,9 @@ export default function AuditFormScreen({ route, navigation }: any) {
   const [comentariosSeccion, setComentariosSeccion] = useState<any>({}); 
   const [segundos, setSegundos] = useState(0); 
   const [cargandoBorrador, setCargandoBorrador] = useState(true);
+
+  // 🚀 NUEVO ESTADO PARA LA CAJA DE "NO EVALUADO"
+  const [justificacionNoEvaluado, setJustificacionNoEvaluado] = useState('');
 
   // --- 1. CRONÓMETRO ---
   useEffect(() => {
@@ -48,12 +51,14 @@ export default function AuditFormScreen({ route, navigation }: any) {
               if (isMounted) {
                 setRespuestas(dataGuardada.respuestas || {});
                 setComentariosSeccion(dataGuardada.comentariosSeccion || {});
+                if (dataGuardada.justificacionNoEvaluado) setJustificacionNoEvaluado(dataGuardada.justificacionNoEvaluado);
                 if (dataGuardada.segundos) setSegundos(dataGuardada.segundos);
               }
             } else {
               if (isMounted) {
                 setRespuestas({});
                 setComentariosSeccion({});
+                setJustificacionNoEvaluado('');
                 setSegundos(0);
               }
               await AsyncStorage.removeItem('@borrador_auditoria');
@@ -62,6 +67,7 @@ export default function AuditFormScreen({ route, navigation }: any) {
              if (isMounted) {
                setRespuestas({});
                setComentariosSeccion({});
+               setJustificacionNoEvaluado('');
                setSegundos(0);
              }
           }
@@ -83,10 +89,10 @@ export default function AuditFormScreen({ route, navigation }: any) {
   // --- GUARDAR BORRADOR AUTOMÁTICO ---
   useEffect(() => {
     if (!cargandoBorrador) {
-      const dataParaGuardar = { respuestas, comentariosSeccion, segundos, eco };
+      const dataParaGuardar = { respuestas, comentariosSeccion, segundos, eco, justificacionNoEvaluado };
       AsyncStorage.setItem('@borrador_auditoria', JSON.stringify(dataParaGuardar));
     }
-  }, [respuestas, comentariosSeccion, segundos, cargandoBorrador, eco]);
+  }, [respuestas, comentariosSeccion, segundos, cargandoBorrador, eco, justificacionNoEvaluado]);
 
   const handleRespuesta = (idPregunta: string, status: 'pasa' | 'nopasa') => {
     setRespuestas({ ...respuestas, [idPregunta]: { ...respuestas[idPregunta], status: status } });
@@ -137,17 +143,50 @@ export default function AuditFormScreen({ route, navigation }: any) {
     return 'pendiente';
   };
 
+  // 🚀 MEJORA 1: CALCULAR PROGRESO CONTANDO SUB-TABLAS
   const calcularProgresoSeccion = (seccion: any) => {
     let totalPreguntas = seccion.items.length;
     let respondidas = 0;
+    
     seccion.items.forEach((item: any) => {
-      if (respuestas[item.id] && respuestas[item.id].status) {
-        respondidas++;
+      if (item.subItems && item.subItems.length > 0) {
+        // Es un padre con sub-tabla. Verificamos si ya está "Terminado" (Pasa o No Pasa)
+        const estado = getEstadoPadre(item);
+        if (estado === 'pasa' || estado === 'nopasa') {
+          respondidas++;
+        }
+      } else {
+        // Es un item normal
+        if (respuestas[item.id] && respuestas[item.id].status) {
+          respondidas++;
+        }
       }
     });
+
     const completo = totalPreguntas > 0 && respondidas === totalPreguntas;
     return { respondidas, totalPreguntas, completo };
   };
+
+  // 🚀 MEJORA 2: VERIFICAR SI TODA LA AUDITORÍA ESTÁ COMPLETA
+  const verificarProgresoGlobal = () => {
+    let preguntasTotalesApp = 0;
+    let respondidasTotalesApp = 0;
+
+    preguntas.forEach((seccion: any) => {
+        const progreso = calcularProgresoSeccion(seccion);
+        preguntasTotalesApp += progreso.totalPreguntas;
+        respondidasTotalesApp += progreso.respondidas;
+    });
+
+    return preguntasTotalesApp === respondidasTotalesApp;
+  };
+
+  const isAuditoriaCompletada = verificarProgresoGlobal();
+  const isJustificacionSuficiente = justificacionNoEvaluado.trim().length >= 6;
+  
+  // El botón se activa SI la auditoría está al 100% O SI escribieron en la justificación
+  const isBotonActivo = isAuditoriaCompletada || isJustificacionSuficiente;
+
 
   const renderItem = (item: any, isSubItem = false) => {
     const res = respuestas[item.id] || {};
@@ -254,20 +293,25 @@ export default function AuditFormScreen({ route, navigation }: any) {
       });
     });
 
+    // Añadimos el comentario "No Evaluado" al objeto general de comentarios para que llegue a Laravel
+    let comentariosFinales = { ...comentariosSeccion };
+    if (justificacionNoEvaluado.trim() !== '') {
+        comentariosFinales['NO_EVALUADO'] = justificacionNoEvaluado;
+    }
+
     navigation.navigate('AuditResultsScreen', {
       ...route.params, 
       respuestas: respuestasParaEnviar,
       preguntas, 
       maximo, 
       tiempoEvaluacion: formatearTiempo(segundos),
-      comentariosSeccion: comentariosSeccion,
+      comentariosSeccion: comentariosFinales,
       modelo_texto: route.params.modelo_texto,
       departamento: departamento,      
     });
   };
 
   return (
-    // CORRECCIÓN: Ahora forzamos a Android con 'height' y un Offset
     <KeyboardAvoidingView 
       style={{ flex: 1 }} 
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -285,7 +329,6 @@ export default function AuditFormScreen({ route, navigation }: any) {
           </View>
         </View>
 
-        {/* CORRECCIÓN: Agregamos un flexGrow y padding bottom para que haya "piso" */}
         <ScrollView 
           style={styles.scroll} 
           contentContainerStyle={{ flexGrow: 1, paddingBottom: 40 }}
@@ -327,11 +370,34 @@ export default function AuditFormScreen({ route, navigation }: any) {
             );
           })}
 
-          <TouchableOpacity style={styles.btnFinalizar} onPress={finalizarAuditoria}>
-            <Text style={styles.btnFinalizarTexto}>FINALIZAR Y EVALUAR</Text>
+          {/* 🚀 MEJORA 2: CAJA DE JUSTIFICACIÓN DE "NO EVALUADO" */}
+          {!isAuditoriaCompletada && (
+            <View style={styles.cajaNoEvaluado}>
+                <Text style={styles.tituloNoEvaluado}>¿No se puede evaluar el equipo?</Text>
+                <Text style={styles.subTituloNoEvaluado}>
+                    Si el cliente no permite la evaluación o el equipo no está disponible, explica el motivo aquí para poder continuar. (Mín. 6 letras)
+                </Text>
+                <TextInput 
+                    style={styles.inputNoEvaluado}
+                    placeholder="Ej: El cliente está usando el equipo y no puede detenerse..."
+                    multiline
+                    value={justificacionNoEvaluado}
+                    onChangeText={setJustificacionNoEvaluado}
+                />
+            </View>
+          )}
+
+          {/* 🚀 MEJORA 2: BOTÓN BLOQUEADO / DESBLOQUEADO */}
+          <TouchableOpacity 
+            style={[styles.btnFinalizar, !isBotonActivo && styles.btnFinalizarBloqueado]} 
+            onPress={isBotonActivo ? finalizarAuditoria : () => Alert.alert('Auditoría Incompleta', 'Debes contestar todos los puntos o justificar por qué no se evaluó el equipo en la caja de arriba.')}
+            activeOpacity={isBotonActivo ? 0.7 : 1}
+          >
+            <Text style={styles.btnFinalizarTexto}>
+                {isBotonActivo ? 'FINALIZAR Y EVALUAR' : 'COMPLETA PARA CONTINUAR'}
+            </Text>
           </TouchableOpacity>
           
-          {/* CORRECCIÓN: Colchón de espacio masivo al final para que puedas deslizar hacia arriba */}
           <View style={{height: 150}} /> 
         </ScrollView>
       </View>
@@ -386,6 +452,12 @@ const styles = StyleSheet.create({
   labelComentarioSeccion: { fontSize: 14, fontWeight: 'bold', color: '#334155', marginBottom: 8 },
   inputComentarioSeccion: { backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 6, padding: 10, fontSize: 14, minHeight: 80, textAlignVertical: 'top' },
 
+  // 🚀 ESTILOS NUEVOS PARA LA CAJA DE "NO EVALUADO"
+  cajaNoEvaluado: { backgroundColor: '#fff7ed', padding: 20, borderRadius: 12, marginTop: 10, borderWidth: 1, borderColor: '#bfdbfe' },
+  tituloNoEvaluado: { fontSize: 16, fontWeight: 'bold', color: '#1e40af', marginBottom: 5 },
+  subTituloNoEvaluado: { fontSize: 13, color: '#475569', marginBottom: 10 },
+  inputNoEvaluado: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#93c5fd', borderRadius: 8, padding: 12, minHeight: 80, textAlignVertical: 'top' },
+
   zonaFoto: { marginTop: 15 },
   labelFotosRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
   btnAñadirFotoChico: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, borderWidth: 1, borderColor: '#D12424' },
@@ -398,6 +470,9 @@ const styles = StyleSheet.create({
   btnTomarFotoTextoLargo: { color: '#D12424', fontWeight: 'bold', marginLeft: 8 },
   subItemsContainer: { marginTop: 15, backgroundColor: '#eff6ff', padding: 10, borderRadius: 8 },
   subItemsTitle: { fontSize: 13, fontWeight: 'bold', color: '#1d4ed8', marginBottom: 10 },
+  
+  // 🚀 ESTILOS DEL BOTÓN FINALIZAR MODIFICADOS
   btnFinalizar: { backgroundColor: '#0f172a', padding: 20, borderRadius: 12, alignItems: 'center', marginTop: 20 },
-  btnFinalizarTexto: { color: '#fff', fontSize: 18, fontWeight: 'bold' }
+  btnFinalizarBloqueado: { backgroundColor: '#94a3b8' },
+  btnFinalizarTexto: { color: '#fff', fontSize: 16, fontWeight: 'bold' }
 });

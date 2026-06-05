@@ -184,6 +184,21 @@ function FollowUpScreen({route,navigation}: any) {
     });
   };
 
+  // 🚀 MEJORA 3: VERIFICAR SI TODAS LAS FALLAS ESTÁN REPARADAS
+  const verificarTodoReparado = () => {
+    let faltan = false;
+    secciones.forEach((seccion: any) => {
+      seccion.fallas.forEach((falla: any) => {
+        if (reparaciones[falla.pregunta]?.status !== 'pasa') {
+          faltan = true;
+        }
+      });
+    });
+    return !faltan;
+  };
+
+  const isTodoReparado = verificarTodoReparado();
+
   // =========================================
   // GUARDAR MANUAL (MODIFICADO PARA BRINCAR AL SENDREPORTSCREEN SI NO HAY RED)
   // =========================================
@@ -457,15 +472,19 @@ function FollowUpScreen({route,navigation}: any) {
           )
         )}
 
-        {/* BOTÓN GUARDAR */}
-
+        {/* BOTÓN GUARDAR MODIFICADO (BLOQUEADO HASTA REPARAR TODO) */}
         {!soloLectura && (
           <TouchableOpacity
-            style={styles.btnGuardar}
-            onPress={
-              handleGuardarSeguimiento
-            }
+            style={[styles.btnGuardar, !isTodoReparado && styles.btnGuardarBloqueado]}
+            onPress={() => {
+              if (!isTodoReparado) {
+                Alert.alert('Faltan Reparaciones', 'Debes reparar y marcar todas las fallas como "✅ Reparado" para poder continuar.');
+                return;
+              }
+              handleGuardarSeguimiento();
+            }}
             disabled={isSubmitting}
+            activeOpacity={isTodoReparado ? 0.7 : 1}
           >
             {
               isSubmitting
@@ -476,7 +495,7 @@ function FollowUpScreen({route,navigation}: any) {
                 )
                 : (
                   <Text style={styles.btnGuardarText}>
-                    GUARDAR
+                    GUARDAR Y ENVIAR
                   </Text>
                 )
             }
@@ -579,6 +598,10 @@ const styles = StyleSheet.create({
     padding: 18,
     borderRadius: 10,
     alignItems: 'center'
+  },
+  // 🚀 NUEVO ESTILO PARA BOTÓN BLOQUEADO
+  btnGuardarBloqueado: {
+    backgroundColor: '#94a3b8'
   },
   btnGuardarText: {
     color: '#fff',
