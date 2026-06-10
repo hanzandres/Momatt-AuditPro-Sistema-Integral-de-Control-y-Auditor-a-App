@@ -282,13 +282,49 @@ export default function AuditFormScreen({ route, navigation }: any) {
 
   const finalizarAuditoria = async () => {
     let respuestasParaEnviar = { ...respuestas };
+    
+    // 🚀 INYECTAMOS LOS DATOS INICIALES DENTRO DEL JSON DE RESPUESTAS 🚀
+    // Tomamos las variables que nos mandó SetupAuditScreen y las guardamos
+    // con las llaves exactas que Laravel está esperando leer.
+    respuestasParaEnviar['Cliente'] = route.params.instalado || 'N/A';
+    respuestasParaEnviar['Departamento'] = route.params.departamento || 'N/A';
+    respuestasParaEnviar['Horas_Inspeccion'] = route.params.horasInspeccion || 'N/A';
+    respuestasParaEnviar['Fecha_Ultimo_MP'] = route.params.fechaUltimoMp || 'N/A';
+    respuestasParaEnviar['Horas_Ultimo_MP'] = route.params.horasMp || 'N/A';
+    respuestasParaEnviar['Aplicacion'] = route.params.aplicacion || 'N/A';
+    respuestasParaEnviar['Diagnostico'] = route.params.diagSeguimiento || 'N/A';
+    // ----------------------------------------------------------------------
+
+    // LÓGICA EXISTENTE: Recorremos todas las secciones y preguntas para inyectar el título y los puntos
     preguntas.forEach((seccion: any) => {
       seccion.items.forEach((item: any) => {
-        if (item.subItems && item.subItems.length > 0) {
-          const estadoCalculado = getEstadoPadre(item);
-          if (estadoCalculado === 'pasa' || estadoCalculado === 'nopasa') {
-            respuestasParaEnviar[item.id] = { ...respuestasParaEnviar[item.id], status: estadoCalculado };
-          }
+        
+        // Si el usuario contestó esta pregunta (ya sea normal o padre)
+        if (respuestasParaEnviar[item.id] || (item.subItems && item.subItems.length > 0)) {
+            
+            // Si es un padre (tiene sub-tablas), calculamos su estado final
+            if (item.subItems && item.subItems.length > 0) {
+              const estadoCalculado = getEstadoPadre(item);
+              if (estadoCalculado === 'pasa' || estadoCalculado === 'nopasa') {
+                respuestasParaEnviar[item.id] = { ...respuestasParaEnviar[item.id], status: estadoCalculado };
+              }
+            }
+
+            // INYECTAMOS EL TÍTULO Y LA SECCIÓN EN LA RESPUESTA
+            if (respuestasParaEnviar[item.id]) {
+                respuestasParaEnviar[item.id].titulo_pregunta = item.text;
+                respuestasParaEnviar[item.id].seccion = seccion.title;
+            }
+
+            // Si tiene subItems, también le inyectamos los títulos a los hijos
+            if (item.subItems && item.subItems.length > 0) {
+                item.subItems.forEach((sub: any) => {
+                    if (respuestasParaEnviar[sub.id]) {
+                        respuestasParaEnviar[sub.id].titulo_pregunta = sub.text;
+                        respuestasParaEnviar[sub.id].seccion = seccion.title;
+                    }
+                });
+            }
         }
       });
     });
@@ -307,10 +343,9 @@ export default function AuditFormScreen({ route, navigation }: any) {
       tiempoEvaluacion: formatearTiempo(segundos),
       comentariosSeccion: comentariosFinales,
       modelo_texto: route.params.modelo_texto,
-      departamento: departamento,      
+      departamento: route.params.departamento,      
     });
   };
-
   return (
     <KeyboardAvoidingView 
       style={{ flex: 1 }} 

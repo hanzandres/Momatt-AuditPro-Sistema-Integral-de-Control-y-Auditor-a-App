@@ -35,7 +35,7 @@ const ForgotPasswordScreen = ({ navigation }: any) => {
     }
 
     try {
-      const response = await fetch('http://10.194.134.1:8000/api/forgot-password', {
+      const response = await fetch('http://10.145.215.1:8000/api/forgot-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify({ email: emailLimpio }) // Mandamos el correo ya limpio

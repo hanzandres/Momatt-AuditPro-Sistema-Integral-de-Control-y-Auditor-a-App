@@ -111,7 +111,7 @@ export default function SetupAuditScreen({ navigation }: any) {
         if (!networkState.isConnected || networkState.isInternetReachable === false) {
           setChecklistNum('Pendiente (Offline)');
         } else {
-          let url = 'http://10.194.134.1:8000/api/siguiente-checklist';
+          let url = 'http://10.145.215.1:8000/api/siguiente-checklist';
           if (nombreGuardado) url += `?tecnico=${encodeURIComponent(nombreGuardado)}`;
           
           const requestOptions: RequestInit = {

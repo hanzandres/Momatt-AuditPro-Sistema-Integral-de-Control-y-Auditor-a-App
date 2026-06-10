@@ -157,8 +157,8 @@ export default function SendReportScreen({ route, navigation }: any) {
           };
 
       const urlDestino = isSeguimiento 
-        ? 'http://10.194.134.1:8000/api/enviar-pdf-seguimiento' 
-        : 'http://10.194.134.1:8000/api/guardar-auditoria';
+        ? 'http://10.145.215.1:8000/api/enviar-pdf-seguimiento' 
+        : 'http://10.145.215.1:8000/api/guardar-auditoria';
 
       // 1. REVISAMOS EL INTERNET ANTES DE ENVIAR
       const networkState = await NetInfo.fetch();

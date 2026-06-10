@@ -37,7 +37,7 @@ const ProfileScreen = ({ navigation }: any) => {
         }
 
         // 2. Le consultamos a Laravel usando la IP de tu servidor (192.168.4.137)
-        const response = await fetch('http://10.194.134.1:8000/api/user', {
+        const response = await fetch('http://10.145.215.1:8000/api/user', {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',

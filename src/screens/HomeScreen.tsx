@@ -96,8 +96,8 @@ const HomeScreen = ({ navigation }: any) => {
       }
 
       const url = nombreGuardado
-        ? `http://10.194.134.1:8000/api/auditorias?tecnico=${encodeURIComponent(nombreGuardado)}`
-        : `http://10.194.134.1:8000/api/auditorias`;
+        ? `http://10.145.215.1:8000/api/auditorias?tecnico=${encodeURIComponent(nombreGuardado)}`
+        : `http://10.145.215.1:8000/api/auditorias`;
 
       // 3. Preparamos los headers de la petición
       const requestOptions: RequestInit = {
