@@ -99,7 +99,7 @@ function FollowUpScreen({route,navigation}: any) {
       const userToken = await AsyncStorage.getItem('user_token');
 
       const url =
-        `http://10.145.215.1:8000/api/auditorias/serie/${auditoria.serie}/seguimiento`;
+        `http://10.122.224.1:8000/api/auditorias/serie/${auditoria.serie}/seguimiento`;
 
       await fetch(url, {
         method: 'POST',
@@ -278,7 +278,7 @@ function FollowUpScreen({route,navigation}: any) {
             reparaciones
         };
 
-        const url = `http://10.145.215.1:8000/api/auditorias/serie/${auditoria.serie}/seguimiento`;
+        const url = `http://10.122.224.1:8000/api/auditorias/serie/${auditoria.serie}/seguimiento`;
         const response =
           await fetch(url, {
             method: 'POST',

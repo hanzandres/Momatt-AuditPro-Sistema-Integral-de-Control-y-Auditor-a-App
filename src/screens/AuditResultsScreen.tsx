@@ -13,7 +13,8 @@ export default function AuditResultsScreen({ route, navigation }: any) {
     tiempoEvaluacion, 
     comentariosSeccion, departamento,
     // 🚀 RECIBIMOS LAS COORDENADAS AQUÍ
-    latitud, longitud
+    latitud, longitud,
+    tecnico_asignado
   } = route.params;
 
   const [puntosObtenidos, setPuntosObtenidos] = useState(0);
@@ -151,7 +152,8 @@ export default function AuditResultsScreen({ route, navigation }: any) {
         observaciones_estructuradas: JSON.stringify(observacionesEstructuradas),
         // 🚀 PASAMOS LAS COORDENADAS A LA ÚLTIMA PANTALLA
         latitud: latitud,
-        longitud: longitud
+        longitud: longitud,
+        tecnico_asignado: tecnico_asignado
     });
 };
 

@@ -40,7 +40,7 @@ const LoginScreen = ({ navigation }: any) => {
 
     try {
       // 1. LOGIN NORMAL (Verificar contraseña)
-      const response = await fetch('http://10.145.215.1:8000/api/login', {
+      const response = await fetch('http://10.122.224.1:8000/api/login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -65,7 +65,7 @@ const LoginScreen = ({ navigation }: any) => {
         const userToken = await AsyncStorage.getItem('user_token');
       
         try {
-          const verifResponse = await fetch('http://10.145.215.1:8000/api/verificar-usuario', {
+          const verifResponse = await fetch('http://10.122.224.1:8000/api/verificar-usuario', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',

@@ -32,7 +32,7 @@ const ResetPasswordScreen = ({ route, navigation }: any) => {
 
     try {
       // RECUERDA CAMBIAR LA IP POR LA TUYA
-      const response = await fetch('http://10.145.215.1:8000/api/reset-password', {
+      const response = await fetch('http://10.122.224.1:8000/api/reset-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify({

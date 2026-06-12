@@ -1,6 +1,6 @@
 // src/screens/SetupAuditScreen.tsx
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, Platform, KeyboardAvoidingView, ActivityIndicator } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, Platform, KeyboardAvoidingView, ActivityIndicator, Modal, FlatList } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { MODELOS_DISPONIBLES } from '../data/ChecklistMaster';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -37,6 +37,11 @@ export default function SetupAuditScreen({ navigation }: any) {
 
   const [esUsuarioCorporativo, setEsUsuarioCorporativo] = useState(false);
   const [modeloTexto, setModeloTexto] = useState('');
+
+  // 🚀 NUEVOS ESTADOS PARA ASIGNACIÓN DE TAREAS CORPORATIVAS
+  const [listaTecnicos, setListaTecnicos] = useState<string[]>([]);
+  const [tecnicoAsignado, setTecnicoAsignado] = useState('');
+  const [modalTecnicosVisible, setModalTecnicosVisible] = useState(false);
 
   // 🚀 ESTADOS PARA GEOLOCALIZACIÓN
   const [ubicacion, setUbicacion] = useState<{lat: number, lng: number} | null>(null);
@@ -83,7 +88,7 @@ export default function SetupAuditScreen({ navigation }: any) {
     }
   }, [horasMp, horasInspeccion]);
 
-  // --- AUTO-LLENADO DESDE ASYNCSTORAGE ---
+  // --- AUTO-LLENADO DESDE ASYNCSTORAGE Y CARGA DE TÉCNICOS ---
   useEffect(() => {
     const inicializarDatos = async () => {
       try {
@@ -92,9 +97,12 @@ export default function SetupAuditScreen({ navigation }: any) {
         const deptoGuardado = await AsyncStorage.getItem('tecnico_departamento');
         const userToken = await AsyncStorage.getItem('user_token');
 
+        let isCorporativo = false;
+
         if (sucursalGuardada) {
-            if (sucursalGuardada === 'Corporativo' || sucursalGuardada.trim() === '') {
+            if (sucursalGuardada.toLowerCase() === 'corporativo' || sucursalGuardada.trim() === '') {
                 setEsUsuarioCorporativo(true);
+                isCorporativo = true;
                 setSucursal(''); 
             } else {
                 setSucursal(sucursalGuardada);
@@ -103,7 +111,7 @@ export default function SetupAuditScreen({ navigation }: any) {
 
         if (deptoGuardado) setDepartamento(deptoGuardado);
         if (nombreGuardado) setNombreTecnico(nombreGuardado);
-        if (sucursalGuardada) setSucursal(sucursalGuardada);
+        if (sucursalGuardada && !isCorporativo) setSucursal(sucursalGuardada);
         if (deptoGuardado) setDepartamento(deptoGuardado);
 
         const networkState = await NetInfo.fetch();
@@ -111,8 +119,7 @@ export default function SetupAuditScreen({ navigation }: any) {
         if (!networkState.isConnected || networkState.isInternetReachable === false) {
           setChecklistNum('Pendiente (Offline)');
         } else {
-          let url = 'http://10.145.215.1:8000/api/siguiente-checklist';
-          if (nombreGuardado) url += `?tecnico=${encodeURIComponent(nombreGuardado)}`;
+          const baseUrl = 'http://10.122.224.1:8000/api';
           
           const requestOptions: RequestInit = {
             method: 'GET',
@@ -123,16 +130,37 @@ export default function SetupAuditScreen({ navigation }: any) {
             }
           };
 
-          const response = await fetch(url, requestOptions); 
+          // 1. Obtener siguiente número de checklist
+          let urlChecklist = `${baseUrl}/siguiente-checklist`;
+          if (nombreGuardado) urlChecklist += `?tecnico=${encodeURIComponent(nombreGuardado)}`;
+          
+          const response = await fetch(urlChecklist, requestOptions); 
           
           if (response.status === 401) {
               console.log("Token inválido. No se puede obtener el Check List.");
               setChecklistNum('Sin Acceso');
-              return;
+          } else {
+             const data = await response.json();
+             setChecklistNum(data.siguiente_numero.toString());
           }
 
-          const data = await response.json();
-          setChecklistNum(data.siguiente_numero.toString());
+          // 🚀 2. OBTENER LISTA DE TÉCNICOS SI ES CORPORATIVO
+          if (isCorporativo) {
+              try {
+                  const urlTecnicos = `${baseUrl}/tecnicos`;
+                  const resTecnicos = await fetch(urlTecnicos, requestOptions);
+                  if (resTecnicos.ok) {
+                      const dataTecnicos = await resTecnicos.json();
+                      if (dataTecnicos.status && Array.isArray(dataTecnicos.tecnicos)) {
+                          setListaTecnicos(dataTecnicos.tecnicos);
+                      }
+                  } else {
+                       console.error("Error al obtener técnicos:", resTecnicos.status);
+                  }
+              } catch (errorTec) {
+                  console.error("Error al hacer fetch a /tecnicos:", errorTec);
+              }
+          }
         }
 
       } catch (error) {
@@ -156,6 +184,12 @@ export default function SetupAuditScreen({ navigation }: any) {
     if (!modeloSeleccionado || !serie || !eco || !nombreEjecutor) {
       Alert.alert('Campos Obligatorios', 'Por favor llena Modelo, Serie, ECO y el nombre del Técnico Ejecutor.');
       return;
+    }
+
+    // Validación extra para corporativos: Asegurar que asignaron a alguien si hay lista
+    if (esUsuarioCorporativo && !tecnicoAsignado && listaTecnicos.length > 0) {
+        Alert.alert('Asignación Pendiente', 'Por favor selecciona a un Técnico Líder para asignar este seguimiento.');
+        return;
     }
 
     if (!ubicacion) {
@@ -184,7 +218,9 @@ export default function SetupAuditScreen({ navigation }: any) {
       horasTrabajadas,
       // Pasamos las coordenadas como strings porque es más fácil manipularlas después
       latitud: ubicacion.lat.toString(), 
-      longitud: ubicacion.lng.toString() 
+      longitud: ubicacion.lng.toString(),
+      // 🚀 PASAMOS EL TÉCNICO ASIGNADO (Si no es corporativo o no asignó, se va nulo)
+      tecnico_asignado: esUsuarioCorporativo ? tecnicoAsignado : null
     });
   };
 
@@ -203,6 +239,22 @@ export default function SetupAuditScreen({ navigation }: any) {
           <Text style={styles.title}>Nueva Auditoría</Text>
           <Text style={styles.subtitle}>Inicialización de datos de control de MP</Text>
         </View>
+
+        {/* 🚀 MÓDULO EXCLUSIVO PARA USUARIOS CORPORATIVOS (ASIGNAR TAREA) */}
+        {esUsuarioCorporativo && (
+          <View style={[styles.card, styles.corporativoCard]}>
+            <Text style={styles.corporativoTitle}>
+              <Ionicons name="shield-checkmark" size={16} color="#1e3a8a" /> Panel de Control Corporativo
+            </Text>
+            <Text style={styles.label}>Asignar el seguimiento de esta Auditoría a: *</Text>
+            <TouchableOpacity style={styles.selectorDropdown} onPress={() => setModalTecnicosVisible(true)}>
+              <Text style={styles.selectorDropdownText}>
+                {tecnicoAsignado ? `👤 ${tecnicoAsignado}` : '👉 Selecciona un Técnico Líder'}
+              </Text>
+              <Ionicons name="chevron-down" size={20} color="#475569" />
+            </TouchableOpacity>
+          </View>
+        )}
 
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>1. Modelo del Equipo</Text>
@@ -261,7 +313,7 @@ export default function SetupAuditScreen({ navigation }: any) {
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>3. Datos de la Inspección</Text>
           
-          <Text style={styles.label}>Técnico</Text>
+          <Text style={styles.label}>Técnico Ejecutor *</Text>
           <TextInput style={styles.input} placeholder="Ej. Nombre del técnico" value={nombreEjecutor} onChangeText={setNombreEjecutor} />
 
           <View style={styles.row}>
@@ -309,7 +361,7 @@ export default function SetupAuditScreen({ navigation }: any) {
             </View>
           </View>
 
-          <Text style={styles.label}>Persona que Audito</Text>
+          <Text style={styles.label}>Persona que Registra</Text>
           <TextInput style={[styles.input, styles.inputDisabled]} value={nombreTecnico} editable={false} />
         </View>
 
@@ -356,8 +408,8 @@ export default function SetupAuditScreen({ navigation }: any) {
                     >
                         <Marker 
                             coordinate={{ latitude: ubicacion.lat, longitude: ubicacion.lng }}
-                            title="Técnico Momatt"
-                            description="Ubicación registrada"
+                            title="Ubicación Registrada"
+                            description="Se adjuntará al reporte"
                             pinColor="#D12424"
                         />
                     </MapView>
@@ -380,6 +432,29 @@ export default function SetupAuditScreen({ navigation }: any) {
         
         <View style={{ height: 150 }} />
       </ScrollView>
+
+      {/* 🚀 MODAL FLOTANTE PARA SELECCIONAR TÉCNICOS */}
+      <Modal animationType="slide" transparent={true} visible={modalTecnicosVisible} onRequestClose={() => setModalTecnicosVisible(false)}>
+        <View style={styles.modalCenteredView}>
+          <View style={styles.modalView}>
+            <Text style={styles.modalTitle}>Asignar Técnico Líder</Text>
+            <FlatList
+              data={listaTecnicos}
+              keyExtractor={(item, index) => `${item}-${index}`}
+              renderItem={({ item }) => (
+                <TouchableOpacity style={styles.tecnicoItem} onPress={() => { setTecnicoAsignado(item); setModalTecnicosVisible(false); }}>
+                  <Text style={styles.tecnicoItemText}>👤 {item}</Text>
+                </TouchableOpacity>
+              )}
+              ListEmptyComponent={<Text style={styles.emptyListText}>No hay técnicos disponibles o no se pudo cargar la lista.</Text>}
+            />
+            <TouchableOpacity style={styles.btnCerrarModal} onPress={() => setModalTecnicosVisible(false)}>
+              <Text style={styles.btnCerrarModalText}>Cancelar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
     </KeyboardAvoidingView>
   );
 }
@@ -390,6 +465,13 @@ const styles = StyleSheet.create({
   title: { color: '#ffffff', fontSize: 24, fontWeight: 'bold' },
   subtitle: { color: '#94a3b8', fontSize: 14, marginTop: 4 },
   card: { backgroundColor: '#ffffff', marginHorizontal: 15, marginTop: 15, padding: 15, borderRadius: 12, elevation: 2 },
+  
+  // 🚀 ESTILOS PARA LA SECCIÓN DE CORPORATIVO
+  corporativoCard: { backgroundColor: '#eff6ff', borderWidth: 1, borderColor: '#bfdbfe' },
+  corporativoTitle: { fontSize: 15, fontWeight: 'bold', color: '#1e3a8a', marginBottom: 10 },
+  selectorDropdown: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 8, padding: 12, height: 48, marginTop: 5 },
+  selectorDropdownText: { fontSize: 15, color: '#334155', fontWeight: '500' },
+
   sectionTitle: { fontSize: 16, fontWeight: 'bold', color: '#1e293b', marginBottom: 12, borderBottomWidth: 1, borderBottomColor: '#f1f5f9', paddingBottom: 5 },
   row: { flexDirection: 'row', gap: 10, marginBottom: 10 },
   flex1: { flex: 1 },
@@ -412,5 +494,15 @@ const styles = StyleSheet.create({
   map: { ...StyleSheet.absoluteFillObject },
   mapLoading: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   mapLoadingText: { color: '#64748b', marginTop: 10, fontSize: 14, fontStyle: 'italic' },
-  mapStatus: { padding: 12, textAlign: 'center', color: '#16a34a', fontWeight: 'bold', fontSize: 13, backgroundColor: '#f0fdf4' }
+  mapStatus: { padding: 12, textAlign: 'center', color: '#16a34a', fontWeight: 'bold', fontSize: 13, backgroundColor: '#f0fdf4' },
+
+  // 🚀 ESTILOS PARA EL MODAL FLOTANTE
+  modalCenteredView: { flex: 1, justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.5)' },
+  modalView: { backgroundColor: 'white', margin: 20, borderRadius: 15, padding: 20, maxHeight: '70%', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4, elevation: 5 },
+  modalTitle: { fontSize: 18, fontWeight: 'bold', color: '#1e293b', marginBottom: 15, textAlign: 'center' },
+  tecnicoItem: { padding: 15, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
+  tecnicoItemText: { fontSize: 16, color: '#334155', fontWeight: '500' },
+  emptyListText: { padding: 20, textAlign: 'center', color: '#64748b', fontStyle: 'italic' },
+  btnCerrarModal: { marginTop: 15, backgroundColor: '#64748b', padding: 12, borderRadius: 8, alignItems: 'center' },
+  btnCerrarModalText: { color: 'white', fontWeight: 'bold', fontSize: 15 }
 });

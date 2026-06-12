@@ -37,7 +37,7 @@ const RegisterScreen = ({ navigation }: any) => {
 
     try {
       // ¡Recuerda mantener tu IP actualizada!
-      const response = await fetch('http://10.145.215.1:8000/api/register', {
+      const response = await fetch('http://10.122.224.1:8000/api/register', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

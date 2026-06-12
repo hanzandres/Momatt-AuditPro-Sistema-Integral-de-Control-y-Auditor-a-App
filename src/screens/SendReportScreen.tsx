@@ -142,7 +142,8 @@ export default function SendReportScreen({ route, navigation }: any) {
             nuevo_estado: route.params?.fecha_finalizacion ? 'Terminado' : 'Pendiente de Seguimiento',
             // 📍 ENVIAMOS COORDENADAS (SEGUIMIENTO)
             latitud: latitudFinal,
-            longitud: longitudFinal
+            longitud: longitudFinal,
+            tecnico_asignado: route.params?.tecnico_asignado || null
           }
         : {
             ...datosAuditoria,
@@ -153,12 +154,13 @@ export default function SendReportScreen({ route, navigation }: any) {
             correos: correosActivos,
             // 📍 ENVIAMOS COORDENADAS (NUEVA AUDITORÍA)
             latitud: latitudFinal,
-            longitud: longitudFinal
+            longitud: longitudFinal,
+            tecnico_asignado: route.params?.tecnico_asignado || null
           };
 
       const urlDestino = isSeguimiento 
-        ? 'http://10.145.215.1:8000/api/enviar-pdf-seguimiento' 
-        : 'http://10.145.215.1:8000/api/guardar-auditoria';
+        ? 'http://10.122.224.1:8000/api/enviar-pdf-seguimiento' 
+        : 'http://10.122.224.1:8000/api/guardar-auditoria';
 
       // 1. REVISAMOS EL INTERNET ANTES DE ENVIAR
       const networkState = await NetInfo.fetch();
